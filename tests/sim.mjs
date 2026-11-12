@@ -46,10 +46,12 @@ function bot(g, rnd) {
         }
         for (const t of g.placed()) { if (g.upgradeCost(t) != null && g.gold >= g.upgradeCost(t) + 20) { g.upgrade(t); acted = true; } }
       }
+      const l0 = g.lives;
       g.startWave();
       let n = 0;
       while (g.phase === 'wave' && n++ < 200000) g.update(1 / 30);
       if (n >= 200000) { console.log('WAVE TIMEOUT', g.roundLabel()); return 'timeout'; }
+      if (l0 > g.lives) (g._leaks ||= []).push(`${g.roundLabel()}:${l0 - g.lives}`);
       continue;
     }
     if (g.phase === 'stageclear') { if (g.stage >= maxStage) return 'cleared'; g.nextStage(); continue; }
@@ -70,7 +72,7 @@ for (let s = 1; s <= runs; s++) {
   let r;
   try { r = bot(g, rnd); } catch (e) { errs.push(e.stack); }
   combos = g.towers.filter((t) => t.kind === 'combo').length;
-  res.push({ seed: s, end: g.roundLabel(), result: r, lives: g.lives, mileage: g.mileage, kills: g.stats.kills, lost: g.stats.dragonsLost, broken: g.stats.stonesBroken, combos, oneHits, luck: g.luck, best: g.towers.map(towerName).filter((n) => !n.startsWith('알')).slice(0, 6).join(','), ms: Date.now() - t0, errs: errs.length });
+  res.push({ seed: s, end: g.roundLabel(), result: r, lives: g.lives, mileage: g.mileage, kills: g.stats.kills, lost: g.stats.dragonsLost, broken: g.stats.stonesBroken, combos, oneHits, luck: g.luck, leaks: (g._leaks || []).slice(0, 8).join(' '), ms: Date.now() - t0, errs: errs.length });
   if (errs.length) console.log(errs[0]);
 }
 console.table(res);

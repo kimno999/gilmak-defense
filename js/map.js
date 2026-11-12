@@ -22,12 +22,12 @@ export const cx = (i) => i % COLS;
 export const cy = (i) => (i / COLS) | 0;
 
 const BIOMES = [
-  { name: '초원', rock: [4, 6], water: [2, 3], mud: [3, 4], hill: [5, 6] },
-  { name: '바위 협곡', rock: [12, 16], water: [1, 3], mud: [2, 3], hill: [3, 5] },
-  { name: '호수 지대', rock: [3, 5], water: [6, 9], mud: [2, 3], hill: [3, 5] },
-  { name: '진흙 늪', rock: [3, 5], water: [2, 3], mud: [8, 11], hill: [3, 4] },
-  { name: '고원', rock: [4, 6], water: [2, 3], mud: [2, 3], hill: [9, 12] },
-  { name: '혼합 지형', rock: [6, 9], water: [3, 5], mud: [4, 6], hill: [5, 7] },
+  { key: 'meadow', name: '초원', rock: [3, 5], water: [2, 3], mud: [2, 3], hill: [4, 5] },
+  { key: 'canyon', name: '바위 협곡', rock: [10, 13], water: [1, 2], mud: [2, 3], hill: [3, 4] },
+  { key: 'lake', name: '호수 지대', rock: [3, 4], water: [5, 7], mud: [2, 3], hill: [3, 4] },
+  { key: 'swamp', name: '진흙 늪', rock: [3, 4], water: [2, 3], mud: [7, 9], hill: [2, 3] },
+  { key: 'highland', name: '고원', rock: [3, 5], water: [2, 3], mud: [2, 3], hill: [8, 10] },
+  { key: 'mixed', name: '혼합 지형', rock: [5, 7], water: [3, 4], mud: [3, 5], hill: [4, 6] },
 ];
 
 export function genStage(stage, seed) {
@@ -72,7 +72,7 @@ export function genStage(stage, seed) {
       }
     }
     const points = keyCells.map((c) => idx(c.x, c.y));
-    const map = { grid, spawn: keyCells[0], goal: keyCells[keyCells.length - 1], flags, points, biome: biome.name, id, stage };
+    const map = { grid, spawn: keyCells[0], goal: keyCells[keyCells.length - 1], flags, points, biome: biome.name, biomeKey: biome.key, id, stage };
     const fields = computeFields(map, new Uint8Array(N));
     if (!fields) continue;
     // 자연 지형만으로 길이 막히면 안 된다 (돌을 부숴야 하는 상태면 실패)
@@ -81,7 +81,7 @@ export function genStage(stage, seed) {
     if (!ok) continue;
     let build = 0;
     for (let i = 0; i < N; i++) if ((grid[i] === T.GRASS || grid[i] === T.HILL) && points.indexOf(i) < 0) build++;
-    if (build < 240) continue;
+    if (build < 200) continue;
     return map;
   }
   throw new Error('맵 생성 실패');

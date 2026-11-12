@@ -10,6 +10,8 @@ const W = COLS * TILE, H = ROWS * TILE;
 export class Renderer {
   constructor(canvas) {
     this.cv = canvas;
+    canvas.width = W; canvas.height = H;
+    canvas.style.aspectRatio = `${COLS} / ${ROWS}`;
     this.g = canvas.getContext('2d');
     this.g.imageSmoothingEnabled = false;
     this.terrain = null;
@@ -74,7 +76,7 @@ export class Renderer {
         const ax = cx(a) * TILE + 8, ay = cy(a) * TILE + 8, bx = cx(b) * TILE + 8, by = cy(b) * TILE + 8;
         const len = Math.max(Math.abs(bx - ax), Math.abs(by - ay));
         for (let s = 0; s < len; s++, step++) {
-          if ((step + off) % 6 < 2) {
+          if ((step - off + 6000) % 6 < 2) { // 출발 → 도착 방향으로 흐른다
             const px = ax + Math.sign(bx - ax) * s, py = ay + Math.sign(by - ay) * s;
             g.fillStyle = game.block ? '#ff6b6b' : '#ffcf4a';
             g.fillRect(px, py, 1, 1);
@@ -125,6 +127,14 @@ export class Renderer {
       if (t.pending) {
         g.fillStyle = (Math.floor(anim * 4) % 2) ? '#ffcf4a' : '#ff8ad8';
         for (let k = 0; k < 16; k += 2) { g.fillRect(x + k, y, 1, 1); g.fillRect(x + k + 1, y + 15, 1, 1); g.fillRect(x, y + k + 1, 1, 1); g.fillRect(x + 15, y + k, 1, 1); }
+      }
+      const al = (view.alertMats || []).find((a) => a.id === t.id);
+      if (al) {
+        const hues = al.kind === 'onehit' ? ['#ff8ad8', '#ffcf4a', '#8fd8ff', '#7be04a'] : ['#7be04a', '#dfffcf'];
+        for (let k = 0; k < 16; k++) {
+          g.fillStyle = hues[(k + Math.floor(anim * 10)) % hues.length];
+          g.fillRect(x + k, y - 1, 1, 1); g.fillRect(x + 15 - k, y + 16, 1, 1); g.fillRect(x - 1, y + 15 - k, 1, 1); g.fillRect(x + 16, y + k, 1, 1);
+        }
       }
       if (hl.has(t.id)) {
         g.fillStyle = (Math.floor(anim * 5) % 2) ? '#7be04a' : '#dfffcf';

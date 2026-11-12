@@ -1,10 +1,10 @@
 // Dragon Merge & Maze 게임 데이터. 수치의 기준은 RULES.md 이다.
 
-export const COLS = 24;
-export const ROWS = 16;
+export const COLS = 22;
+export const ROWS = 15;
 export const N = COLS * ROWS;
 export const TILE = 16;
-export const ROUNDS_PER_STAGE = 50;
+export const ROUNDS_PER_STAGE = 30;
 export const CHECKPOINTS = 4;
 export const START_LIVES = 20;
 export const START_GOLD = 10;
@@ -193,11 +193,11 @@ export const COMBO_BY_ID = Object.fromEntries(COMBOS.map((c) => [c.id, c]));
 
 // 몬스터 (규칙 6, 10)
 export const MONSTER_KINDS = {
-  normal: { hp: 1, speed: 1.0, armor: (r) => r / 10, life: 1 },
+  normal: { hp: 1, speed: 1.0, armor: (r) => r / 6, life: 1 },
   fast: { hp: 0.6, speed: 1.7, armor: () => 0, life: 1 },
-  armored: { hp: 1.8, speed: 0.7, armor: (r) => 3 + r / 5, life: 1 },
-  flying: { hp: 0.8, speed: 1.1, armor: (r) => 1 + r / 10, life: 1, fly: true },
-  boss: { hp: 16, speed: 0.55, armor: (r) => 5 + r / 5, life: 5, boss: true },
+  armored: { hp: 1.8, speed: 0.7, armor: (r) => 3 + r / 3, life: 1 },
+  flying: { hp: 0.8, speed: 1.1, armor: (r) => 1 + r / 6, life: 1, fly: true },
+  boss: { hp: 16, speed: 0.55, armor: (r) => 5 + r / 3, life: 5, boss: true, ground: true },
 };
 export const MONSTER_NAMES = {
   human: { normal: '병사', fast: '척후병', armored: '중갑기사', flying: '그리폰 기수', boss: '인간 대장군' },
@@ -209,13 +209,14 @@ export function raceFor(round) {
   return RACE_ORDER[(round - 1) % RACE_ORDER.length];
 }
 
-// 웨이브 구성 (규칙 8의 골드 모델과 같은 마릿수)
+// 웨이브 구성 (규칙 6, 다음 제작 목록 6·10번)
+// 5라운드마다 공중, 10라운드마다 보스 + 공중. 일반 라운드에는 공중이 섞이지 않는다. 보스는 항상 지상.
 export function waveFor(stage, round) {
   const race = raceFor(round);
-  const n = 8 + Math.floor(round / 3);
+  const n = 6 + Math.floor(round * 0.75);
   const list = [];
   if (round % 10 === 0) {
-    for (let i = 0; i < Math.floor(n / 2); i++) list.push('normal');
+    for (let i = 0; i < Math.ceil(n * 0.5); i++) list.push('flying');
     list.push('boss');
   } else if (round % 5 === 0) {
     for (let i = 0; i < Math.ceil(n * 0.7); i++) list.push('flying');
@@ -224,36 +225,35 @@ export function waveFor(stage, round) {
       let k = 'normal';
       if (round >= 3 && i % 4 === 3) k = 'fast';
       if (round >= 6 && i % 6 === 5) k = 'armored';
-      if (round >= 12 && i % 7 === 6) k = 'flying';
       list.push(k);
     }
   }
   return { race, list };
 }
-export const HP_BASE = 18;
-export const HP_GROWTH = 1.17;
-export const STAGE_HP = 6;
+export const HP_BASE = 20;
+export const HP_GROWTH = 1.25;
+export const STAGE_HP = 1.3;
 export function hpFor(stage, round) {
   return HP_BASE * Math.pow(HP_GROWTH, round - 1) * Math.pow(STAGE_HP, stage - 1);
 }
 export function goldPerKill(round) {
-  return 1 + Math.floor(round / 10);
+  return 1 + Math.floor(round / 6);
 }
 export function roundBonus(round) {
-  return 5 + Math.floor(round / 5) + (round % 10 === 0 ? 30 + round : 0);
+  return 5 + Math.floor(round / 3) + (round % 10 === 0 ? 30 + round * 2 : 0);
 }
 
 // 승급 확률표 (규칙 8): [비용, 알, 해츨링, 어린 비룡, 성체, 고위]
 export const LUCK_TABLE = [
   [0, 80, 20, 0, 0, 0],
   [20, 60, 30, 10, 0, 0],
-  [40, 50, 32, 15, 3, 0],
-  [70, 40, 33, 20, 7, 0],
-  [110, 32, 32, 25, 10, 1],
-  [160, 25, 30, 30, 13, 2],
-  [220, 20, 27, 33, 16, 4],
-  [290, 15, 24, 37, 18, 6],
-  [370, 10, 20, 40, 20, 10],
+  [35, 50, 32, 15, 3, 0],
+  [55, 40, 33, 20, 7, 0],
+  [85, 32, 32, 25, 10, 1],
+  [120, 25, 30, 30, 13, 2],
+  [165, 20, 27, 33, 16, 4],
+  [215, 15, 24, 37, 18, 6],
+  [275, 10, 20, 40, 20, 10],
 ];
 export const MAX_LUCK = LUCK_TABLE.length - 1;
 

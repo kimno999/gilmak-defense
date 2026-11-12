@@ -204,20 +204,140 @@ function startGame() {
   game.on('toast', (m, k) => toast(m, k));
   game.on('change', () => { dirty = true; });
   game.on('stage', () => { dirty = true; });
-  game.on('onehit', () => toast('럭키 원힛!', 'good'));
+  game.on('alert', onAlert);
   game.on('leak', () => { flashLives(); });
   game.on('stageclear', onStageClear);
   game.on('over', onOver);
   dirty = true;
+  sfx.unlock();
   maybeHint();
 }
 
+// ---------- 원힛·콤바인 알림: 맵 표시, 배너, 효과음, 도감 버튼 (다음 제작 목록 2번) ----------
+const sfx = (() => {
+  let ac = null;
+  let on = store.get('gilmak-sound', true);
+  const tone = (f, t0, dur, type = 'triangle', vol = 0.18) => {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, ac.currentTime + t0);
+    g.gain.setValueAtTime(0.0001, ac.currentTime + t0);
+    g.gain.exponentialRampToValueAtTime(vol, ac.currentTime + t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + t0 + dur);
+    o.connect(g).connect(ac.destination);
+    o.start(ac.currentTime + t0); o.stop(ac.currentTime + t0 + dur + 0.05);
+  };
+  return {
+    get on() { return on; },
+    set on(v) { on = v; store.set('gilmak-sound', v); },
+    unlock() { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch (e) { ac = null; } },
+    play(kind) {
+      if (!on || !ac) return;
+      try {
+        if (kind === 'onehit') {
+          [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, i * 0.07, 0.35));
+          [1568, 2093].forEach((f, i) => tone(f, 0.4 + i * 0.06, 0.5, 'sine', 0.1));
+        } else if (kind === 'combine') {
+          tone(659, 0, 0.25); tone(988, 0.1, 0.4);
+        } else if (kind === 'merge') {
+          tone(440, 0, 0.15); tone(660, 0.07, 0.25);
+        }
+      } catch (e) { /* 소리 실패는 무시 */ }
+    },
+  };
+})();
+
+let bannerTimer = 0;
+function showBanner(kind, text) {
+  const b = $('banner');
+  b.hidden = true; void b.offsetWidth;
+  b.className = `banner ${kind}`;
+  $('bannerKind').textContent = kind === 'onehit' ? '럭키 원힛!' : '콤바인 가능!';
+  $('bannerText').textContent = text;
+  b.hidden = false;
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => { b.hidden = true; }, 2700);
+}
+
+function renderBubbles() {
+  const box = $('bubbles');
+  box.replaceChildren();
+  view.alertMats = [];
+  if (!game || !running) return;
+  const o = game.opportunities();
+  const list = [...o.oneHit.map((x) => ({ ...x, kind: 'onehit' })), ...o.combine.map((x) => ({ ...x, kind: 'combine' }))];
+  const used = new Set();
+  for (const it of list) {
+    for (const m of it.mats) view.alertMats.push({ id: m.id, kind: it.kind });
+    const head = it.mats[0];
+    if (used.has(head.id)) continue;
+    used.add(head.id);
+    box.append(el('div', {
+      class: `bubble ${it.kind}`,
+      style: `left:${((head.x + 0.5) / COLS) * 100}%;top:${(head.y / ROWS) * 100}%`,
+      text: it.kind === 'onehit' ? `원힛! ${it.combo.name}` : `콤바인! ${it.combo.name}`,
+    }));
+  }
+  const n = list.length;
+  const badge = $('bookBadge');
+  badge.hidden = !n; badge.textContent = n;
+  $('btnBook').classList.toggle('blink', n > 0);
+}
+
+function onAlert(a) {
+  if (a.type === 'onehit') {
+    showBanner('onehit', `${a.combo.name}을(를) 이번 라운드에 바로 만들 수 있어요`);
+    sfx.play('onehit');
+    game.fx.push({ k: 'burst', x: a.mats[0].x + 0.5, y: a.mats[0].y + 0.5, t: 0, life: 1.2, color: '#ffe066', big: true });
+  } else {
+    showBanner('combine', `${a.combo.name} · 정비 시간에 콤바인할 수 있어요`);
+    sfx.play('combine');
+  }
+  dirty = true;
+}
+
+$('btnSound').addEventListener('click', () => {
+  sfx.on = !sfx.on;
+  sfx.unlock();
+  $('btnSound').textContent = sfx.on ? '소리 켜짐' : '소리 꺼짐';
+  $('btnSound').setAttribute('aria-pressed', String(sfx.on));
+  if (sfx.on) sfx.play('combine');
+});
+$('btnSound').textContent = sfx.on ? '소리 켜짐' : '소리 꺼짐';
+$('btnSound').setAttribute('aria-pressed', String(sfx.on));
+
+// ---------- 메뉴: 다시 시작, 게임 포기 (다음 제작 목록 9번) ----------
+function showMenu() {
+  if (!game || !running) { showTitle(); return; }
+  const m = game.mileageNow();
+  openModal('메뉴', [
+    el('p', { text: `지금 ${game.roundLabel()}${game.phase === 'wave' ? ' 웨이브 진행 중' : ''}이에요. 게임은 멈춰 있어요.` }),
+    el('p', { text: `지금 그만두면 클리어한 라운드까지 계산해서 마일리지 +${m}을(를) 받아요.${game.phase === 'wave' ? ' 진행 중인 라운드는 빼고 계산해요.' : ''}` }),
+  ], [
+    el('button', { class: 'btn', type: 'button', text: '게임 포기', onclick: () => confirmQuit('giveup', m) }),
+    el('button', { class: 'btn', type: 'button', text: '다시 시작', onclick: () => confirmQuit('restart', m) }),
+    el('button', { class: 'btn', type: 'button', text: '도움말', onclick: () => showTutorial(0, null) }),
+    el('button', { class: 'btn primary', type: 'button', text: '계속하기', onclick: closeModal }),
+  ]);
+}
+function confirmQuit(kind, m) {
+  openModal(kind === 'restart' ? '다시 시작할까요?' : '게임을 포기할까요?', [
+    el('p', { text: `마일리지 +${m}을(를) 받고 ${kind === 'restart' ? '새 게임을 바로 시작해요' : '결과 화면으로 가요'}. 되돌릴 수 없어요.` }),
+  ], [
+    el('button', { class: 'btn', type: 'button', text: '취소', onclick: showMenu }),
+    el('button', { class: 'btn primary', type: 'button', text: kind === 'restart' ? `+${m} 받고 다시 시작` : `+${m} 받고 포기`, onclick: () => {
+      quitKind = kind;
+      game.giveUp();
+    } }),
+  ]);
+}
+let quitKind = null;
+$('btnMenu').addEventListener('click', showMenu);
+
 function onStageClear() {
-  const n = game.towers.length;
   openModal(`스테이지 ${game.stage} 클리어!`, [
-    el('p', { text: `${ROUNDS_PER_STAGE}라운드를 모두 막았어요. 다음 스테이지는 지형이 새로 생성되고, 돌은 사라지고, 승급 단계는 처음으로 돌아가요.` }),
-    el('p', { text: `지금 맵의 드래곤 ${n}마리는 보관되어, 새 지도에서 이번 라운드 드래곤과 함께 다시 놓을 수 있어요. 몬스터는 훨씬 강해져요.` }),
-  ], [el('button', { class: 'btn primary', type: 'button', text: `스테이지 ${game.stage + 1} 시작`, onclick: () => { closeModal(); game.nextStage(); view.selPiece = game.draw[0] && game.draw[0].pid; dirty = true; } })], { closable: false });
+    el('p', { text: `${ROUNDS_PER_STAGE}라운드를 모두 막았어요! 마일리지 보너스 +${30 * game.stage}이 쌓였어요.` }),
+    el('p', { text: '다음 스테이지는 새 지형에서 알부터 다시 시작해요. 드래곤과 돌은 모두 사라지고, 골드와 승급 단계는 처음으로 돌아가요. 남은 생명은 그대로 이어 가요.' }),
+  ], [el('button', { class: 'btn primary', type: 'button', text: `스테이지 ${game.stage + 1} 시작`, onclick: () => { closeModal(); game.nextStage(); view.selPiece = game.draw[0] && game.draw[0].pid; view.selTower = null; view.selStone = null; dirty = true; } })], { closable: false });
 }
 
 function onOver(mileage) {
@@ -228,7 +348,10 @@ function onOver(mileage) {
   if (better) meta.best = label;
   saveMeta();
   const s = game.stats;
-  openModal('게임 오버', [
+  if (quitKind === 'restart') { quitKind = null; toast(`마일리지 +${mileage}을(를) 받았어요`, 'good'); startGame(); return; }
+  const gave = quitKind === 'giveup';
+  quitKind = null;
+  openModal(gave ? '게임 포기' : '게임 오버', [
     el('div', { class: 'result' },
       el('div', {}, el('span', { text: '도달' }), el('b', { text: label })),
       el('div', {}, el('span', { text: '처치' }), el('b', { text: s.kills })),
@@ -255,7 +378,7 @@ function flashLives() { const v = $('hLives'); v.classList.add('low'); setTimeou
 
 // ---------- 상황별 도움말 (첫 판) ----------
 const HINTS = {
-  place: '오른쪽 "이번 라운드 드래곤"에서 하나를 고르고 지도의 빈칸을 누르면 놓여요. 노란 점선이 몬스터 경로예요. 5마리를 모두 놓아야 해요.',
+  place: '오른쪽 "이번 라운드 드래곤"에서 하나를 고르고 지도의 빈칸을 누르면 놓여요. 노란 점선이 몬스터 경로예요. 잘못 놓았으면 그 드래곤을 누르고 다른 빈칸을 눌러 옮길 수 있어요.',
   choose: '이제 하나만 남길 차례예요. 깜빡이는 테두리의 드래곤을 눌러 "이 드래곤 남기기"를 누르세요. 나머지 4마리는 돌이 되어 미로 벽이 돼요.',
   merge2: '이번 라운드에 같은 종류·같은 등급이 2마리 나왔어요! 그중 하나를 누르고 "2마리 합성해서 남기기"를 누르면 한 단계 높은 드래곤이 돼요.',
   onehit: '럭키 원힛! 이번 라운드 5마리 안에 조합 재료가 다 있어요. 재료 하나를 누르고 무지개색 "원힛" 버튼을 누르면 그 자리에 조합 드래곤이 생겨요.',
@@ -302,9 +425,9 @@ function renderTray() {
     if (!game.draw.find((p) => p.pid === view.selPiece)) view.selPiece = game.draw[0].pid;
     for (const p of game.draw) {
       tray.append(el('button', {
-        class: `piece${p.pid === view.selPiece ? ' on' : ''}${p.carried ? ' carried' : ''}`, type: 'button',
+        class: `piece${p.pid === view.selPiece ? ' on' : ''}`, type: 'button',
         'aria-label': pieceName(p), onclick: () => { view.selPiece = p.pid; view.selTower = null; view.selStone = null; dirty = true; },
-      }, icon(pieceSprite(p), 2.5), el('span', { class: 'n', text: pieceName(p) }), el('span', { class: 'c', text: p.carried ? '보관 중' : GRADES[p.grade] ? `${ELEMENTS[p.kind === 'combo' ? COMBO_BY_ID[p.type].elem : DRAGONS[p.type].elem].name}` : '' })));
+      }, icon(pieceSprite(p), 2.5), el('span', { class: 'n', text: pieceName(p) }), el('span', { class: 'c', text: ELEMENTS[p.kind === 'combo' ? COMBO_BY_ID[p.type].elem : DRAGONS[p.type].elem].name })));
     }
     if (!game.hasFreeCell()) {
       tray.append(el('button', { class: 'btn small', type: 'button', style: 'grid-column:1/-1', text: '놓을 자리가 없어요 · 남은 드래곤 보내기', onclick: () => game.discardRemaining() }));
@@ -346,6 +469,28 @@ function towerDesc(t) {
 
 function setHighlight(list) { view.highlight = list.map((t) => t.id); }
 
+// 이 드래곤이 재료로 쓰이는 조합 (다음 제작 목록 3번)
+function usesBlock(type, grade, selfId) {
+  const exactOf = (c) => Number(c.recipe.some(([g, k]) => k === type && g === grade));
+  const list = COMBOS.filter((c) => c.recipe.some(([, k]) => k === type)).sort((a, b) => exactOf(b) - exactOf(a));
+  if (!list.length) return null;
+  const onMap = (g, k) => game.towers.some((t) => t.kind === 'dragon' && t.type === k && t.grade === g && t.id !== selfId);
+  const items = list.map((c) => {
+    const exact = c.recipe.some(([g, k]) => k === type && g === grade);
+    const mats = c.recipe.map(([g, k]) => {
+      const me = exact && k === type && g === grade;
+      const have = me || onMap(g, k);
+      return el('span', { class: me ? 'me' : have ? 'ok' : 'no', text: `${me ? '이 드래곤' : `${GRADES[g].name} ${DRAGONS[k].short}`} ${me ? '' : have ? '✓' : '✗'}`.trim() });
+    });
+    const need = c.recipe.filter(([, k]) => k === type).map(([g]) => GRADES[g].name).join(', ');
+    return el('div', { class: 'use' },
+      el('div', { class: 'un' }, iconCanvas(comboSprite(c.id, 0), 1.5), c.name),
+      el('div', { class: 'um' }, ...mats),
+      exact ? null : el('div', { class: 'meta', style: 'margin:4px 0 0', text: `이 조합에는 ${need} 단계가 필요해요` }));
+  });
+  return el('div', { class: 'uses' }, el('h5', { text: `이 드래곤이 쓰이는 조합 (${list.length})` }), ...items);
+}
+
 function renderInfo() {
   const box = $('info');
   box.replaceChildren();
@@ -372,6 +517,12 @@ function renderInfo() {
       t.eclipseIn ? el('span', { class: 'tag', text: `일식 버프 +${Math.round(t.eclipseIn * 100)}%` }) : null);
     put(box, head, tags, el('p', { class: 'meta', text: towerDesc(t) }), statsBlock(t, s));
     const acts = el('div', { class: 'acts' });
+    if (game.canRelocate(t)) {
+      acts.append(el('p', { class: 'meta', style: 'margin:0;color:#8fd8ff', text: '이번 라운드 드래곤이라 옮길 수 있어요. 빈칸을 누르면 그 자리로 옮겨져요.' }));
+      acts.append(el('button', { class: 'btn small', type: 'button', text: '되돌리기 (목록으로)', onclick: () => {
+        const p = game.returnTower(t); view.selTower = null; if (p) view.selPiece = p.pid; dirty = true;
+      } }));
+    }
     if (ph === 'choose' && t.pending) {
       for (const c of game.oneHits(t)) {
         acts.append(el('button', { class: 'btn lucky', type: 'button', text: `원힛! ${c.name} 만들기`, onclick: () => { game.oneHit(t, c.id); view.selTower = null; } }));
@@ -403,7 +554,7 @@ function renderInfo() {
     } else if (ph === 'wave') {
       acts.append(el('p', { class: 'meta', text: '웨이브 중에는 합성·콤바인을 할 수 없어요.' }));
     }
-    put(box, acts);
+    put(box, acts, t.kind === 'dragon' ? usesBlock(t.type, t.grade, t.id) : null);
     return;
   }
 
@@ -416,7 +567,7 @@ function renderInfo() {
       put(box, el('h4', {}, icon(pieceSprite(p), 2.5), pieceName(p)),
         el('div', {}, elemTag(s.elem), el('span', { class: 'tag', text: targetText(s.target) })),
         el('p', { class: 'meta', text: `${p.kind === 'combo' ? COMBO_BY_ID[p.type].desc : DRAGONS[p.type].desc}. 지도의 빈칸을 눌러 놓으세요.` }),
-        statsBlock(fake, s));
+        statsBlock(fake, s), p.kind === 'dragon' ? usesBlock(p.type, p.grade, -1) : null);
     }
   } else if (ph === 'choose') {
     const anyOne = game.pendings().some((q) => game.oneHits(q).length);
@@ -497,6 +648,7 @@ function renderAll() {
   renderInfo();
   renderLuck();
   renderWave();
+  renderBubbles();
   maybeHint();
 }
 
@@ -515,6 +667,11 @@ cv.addEventListener('click', (e) => {
   const t = game.towerAtCell(x, y);
   if (t) { view.selTower = view.selTower && view.selTower.id === t.id ? null : t; view.selStone = null; dirty = true; return; }
   if (game.isStone(x, y)) { view.selStone = view.selStone && view.selStone.x === x && view.selStone.y === y ? null : { x, y }; view.selTower = null; dirty = true; return; }
+  // 이번 라운드 드래곤을 고른 상태에서 빈칸을 누르면 옮긴다
+  if (view.selTower && game.canRelocate(view.selTower)) {
+    const mv = view.selTower;
+    if (game.moveTower(mv, x, y)) { view.selTower = game.getTower(mv.id); dirty = true; return; }
+  }
   if (view.selTower || view.selStone) { view.selTower = null; view.selStone = null; dirty = true; if (game.phase !== 'place') return; }
   if (game.phase === 'place' && view.selPiece != null) {
     if (game.placePiece(view.selPiece, x, y)) {
@@ -563,7 +720,7 @@ function frame(now) {
   last = now;
   if (game) {
     view.paused = paused && game.phase === 'wave';
-    if (running && !paused && game.phase === 'wave') {
+    if (running && !paused && game.phase === 'wave' && $('modal').hidden) {
       const h = dt * speed, n = Math.max(1, Math.ceil(h / 0.034));
       for (let i = 0; i < n && game.phase === 'wave'; i++) game.update(h / n);
       const hk = `${Math.floor(game.gold)}|${game.lives}`;

@@ -35,7 +35,7 @@ export class Game {
     this.gold = START_GOLD;
     this.stats = { roundsCleared: 0, bossKills: 0, stagesCleared: 0, kills: 0, dragonsLost: 0, stonesBroken: 0 };
     this.time = 0;
-    this.startStage(genStage(1, this.seed), []);
+    this.startStage(genStage(1, this.seed));
   }
 
   on(ev, fn) { (this.listeners[ev] ||= []).push(fn); }
@@ -43,7 +43,7 @@ export class Game {
   toast(msg, kind) { this.emit('toast', msg, kind); }
 
   // ---------- 스테이지와 라운드 ----------
-  startStage(map, carried) {
+  startStage(map) {
     this.map = map;
     this.stage = map.stage;
     this.round = 1;
@@ -56,7 +56,8 @@ export class Game {
     this.fx = [];
     this.pools = [];
     this.spawnQ = [];
-    this.draw = carried.map((p) => ({ ...p, pid: this.nextId++, carried: true }));
+    this.draw = [];
+    this.announced = new Set();
     this.newDraw();
     this.phase = 'place';
     this.refresh();
@@ -84,8 +85,8 @@ export class Game {
   }
 
   // ---------- 배치 ----------
-  canPlace(x, y) {
-    if (this.phase !== 'place') return { ok: false, msg: '' };
+  canPlace(x, y, moving = false) {
+    if (this.phase !== 'place' && !(moving && this.phase === 'choose')) return { ok: false, msg: '' };
     if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return { ok: false, msg: '' };
     const i = idx(x, y);
     if (this.map.points.indexOf(i) >= 0) return { ok: false, msg: '출발·도착·깃발 칸에는 놓을 수 없어요' };
@@ -114,7 +115,7 @@ export class Game {
     const i = idx(x, y);
     const t = {
       id: this.nextId++, x, y, kind: p.kind, type: p.type, grade: p.grade, up: p.up || 0,
-      pending: !p.carried, cool: 0.3, angle: 0, hill: this.map.grid[i] === T.HILL,
+      pending: true, cool: 0.3, angle: 0, hill: this.map.grid[i] === T.HILL,
     };
     this.towers.push(t);
     this.occ[i] = OCC.DRAGON;
@@ -132,9 +133,37 @@ export class Game {
     if (!this.draw.length) {
       this.phase = this.towers.some((q) => q.pending) ? 'choose' : 'prep';
       if (this.phase === 'choose') this.toast('남길 드래곤 하나를 고르세요. 나머지는 돌이 돼요');
+      this.checkAlerts();
     }
     this.emit('change');
     return true;
+  }
+
+  // 이번 라운드에 놓은 드래곤 옮기기·되돌리기 (남길 드래곤을 고르기 전까지, 다음 제작 목록 4번)
+  canRelocate(t) { return !!t && t.pending && (this.phase === 'place' || this.phase === 'choose'); }
+
+  moveTower(t, x, y) {
+    if (!this.canRelocate(t)) return false;
+    const c = this.canPlace(x, y, true);
+    if (!c.ok) { if (c.msg) this.toast(c.msg, 'bad'); return false; }
+    const from = idx(t.x, t.y), to = idx(x, y);
+    this.occ[from] = OCC.EMPTY; this.towerAt[from] = -1;
+    t.x = x; t.y = y; t.hill = this.map.grid[to] === T.HILL;
+    this.occ[to] = OCC.DRAGON; this.towerAt[to] = t.id;
+    this.refresh();
+    if (this.block) this.toast('길이 막혀서 몬스터가 돌을 부수게 돼요', 'bad');
+    this.checkAlerts();
+    return true;
+  }
+
+  returnTower(t) {
+    if (!this.canRelocate(t)) return false;
+    this.removeTower(t, false);
+    const p = { pid: this.nextId++, kind: t.kind, type: t.type, grade: t.grade, up: 0 };
+    this.draw.push(p);
+    this.phase = 'place';
+    this.refresh();
+    return p;
   }
 
   getTower(id) { return this.towers.find((t) => t.id === id) || null; }
@@ -150,7 +179,7 @@ export class Game {
 
   // 놓을 자리가 하나도 없으면 남은 드래곤은 버린다
   hasFreeCell() {
-    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (this.canPlace(x, y).ok) return true;
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (this.canPlace(x, y, true).ok) return true;
     return false;
   }
 
@@ -160,6 +189,7 @@ export class Game {
     this.draw = [];
     this.phase = this.towers.some((q) => q.pending) ? 'choose' : 'prep';
     this.toast(`놓을 자리가 없어서 드래곤 ${n}마리를 놓아 보냈어요`, 'bad');
+    this.checkAlerts();
     this.emit('change');
     return true;
   }
@@ -172,6 +202,7 @@ export class Game {
     keep.pending = false;
     this.phase = 'prep';
     this.refresh();
+    this.checkAlerts();
   }
 
   keep(t) {
@@ -245,6 +276,7 @@ export class Game {
     for (const p of ps) this.removeTower(p, true);
     t.grade++;
     this.refresh();
+    this.checkAlerts();
     this.fxBurst(t, DRAGONS[t.type].pal.l);
     this.toast(`합성! ${towerName(t)}`, 'good');
     return true;
@@ -727,8 +759,43 @@ export class Game {
 
   nextStage() {
     if (this.phase !== 'stageclear') return;
-    const carried = this.towers.map((t) => ({ kind: t.kind, type: t.type, grade: t.grade, up: t.up }));
-    this.startStage(genStage(this.stage + 1, this.seed), carried);
+    this.gold = START_GOLD;
+    this.startStage(genStage(this.stage + 1, this.seed));
+  }
+
+  // 지금 진행만큼의 마일리지 (진행 중인 웨이브의 라운드는 빼고)
+  mileageNow() { return mileageFor(this.stats); }
+
+  giveUp() {
+    if (this.phase === 'over') return 0;
+    this.gaveUp = true;
+    this.gameOver();
+    return this.mileage;
+  }
+
+  // 원힛·콤바인 기회 (다음 제작 목록 2번)
+  opportunities() {
+    const out = { oneHit: [], combine: [] };
+    if (this.phase === 'choose') {
+      for (const t of this.pendings()) for (const c of this.oneHits(t)) out.oneHit.push({ combo: c, mats: [t, ...this.matchRecipe(c, t, this.pendings())] });
+    } else if (this.phase === 'prep') {
+      for (const t of this.placed()) for (const c of this.combines(t)) out.combine.push({ combo: c, mats: [t, ...this.combineMaterials(t, c.id)] });
+    }
+    const uniq = (list) => { const seen = new Set(); return list.filter((o) => { if (seen.has(o.combo.id)) return false; seen.add(o.combo.id); return true; }); };
+    out.oneHit = uniq(out.oneHit); out.combine = uniq(out.combine);
+    return out;
+  }
+
+  checkAlerts() {
+    const o = this.opportunities();
+    for (const it of o.oneHit) {
+      const key = `onehit:${this.stage}-${this.round}:${it.combo.id}`;
+      if (!this.announced.has(key)) { this.announced.add(key); this.emit('alert', { type: 'onehit', combo: it.combo, mats: it.mats }); }
+    }
+    for (const it of o.combine) {
+      const key = `combine:${it.combo.id}:${it.mats.map((m) => m.id).sort().join(',')}`;
+      if (!this.announced.has(key)) { this.announced.add(key); this.emit('alert', { type: 'combine', combo: it.combo, mats: it.mats }); }
+    }
   }
 
   gameOver() {
