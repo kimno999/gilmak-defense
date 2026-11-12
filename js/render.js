@@ -211,7 +211,7 @@ export class Renderer {
     }
 
     // 부서질 칸
-    if (game.breaks && game.phase !== 'wave') {
+    if (game.breaks && game.phase !== 'wave' && game.phase !== 'tester') {
       for (const i of game.breaks) {
         const x = cx(i) * TILE, y = cy(i) * TILE;
         g.fillStyle = (Math.floor(t * 3) % 2) ? '#ff6b6b' : '#ffd2d2';

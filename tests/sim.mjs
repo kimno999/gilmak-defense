@@ -2,6 +2,7 @@
 import { Game, towerName } from '../js/game.js';
 import { COLS, ROWS, MAX_GRADE } from '../js/data.js';
 import { mulberry32, idx } from '../js/map.js';
+import { SURVIVAL_MAPS, decodeMapCode } from '../js/survival-map.js';
 
 function bot(g, rnd) {
   let guard = 0;
@@ -22,6 +23,12 @@ function bot(g, rnd) {
         if (g.previewBlock(x, y) > 0) continue;
         const v = rnd();
         if (v > bv) { bv = v; best = [x, y]; }
+      }
+      if (!best && !g.hasFreeCell()) {
+        // 자리가 없으면 돌을 하나 깬다 (v0.5: 무료)
+        const stones = [];
+        for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (g.isStone(x, y)) stones.push([x, y]);
+        if (stones.length) { const [x, y] = stones[Math.floor(rnd() * stones.length)]; g.removeStone(x, y); continue; }
       }
       if (!best) { for (let y = 0; y < ROWS && !best; y++) for (let x = 0; x < COLS && !best; x++) if (g.canPlace(x, y).ok) best = [x, y]; }
       if (!best) { if (!g.discardRemaining()) return 'stuck'; continue; }
@@ -49,7 +56,7 @@ function bot(g, rnd) {
       const l0 = g.lives;
       g.startWave();
       let n = 0;
-      while (g.phase === 'wave' && n++ < 200000) g.update(1 / 30);
+      while (g.isFighting() && n++ < 200000) g.update(1 / 30);
       if (n >= 200000) { console.log('WAVE TIMEOUT', g.roundLabel()); return 'timeout'; }
       if (l0 > g.lives) (g._leaks ||= []).push(`${g.roundLabel()}:${l0 - g.lives}`);
       continue;
@@ -61,10 +68,13 @@ function bot(g, rnd) {
 
 const runs = +(process.argv[2] || 6);
 const maxStage = +(process.argv[3] || 99);
+const mode = process.argv[4] || 'normal'; // normal | cross | direct (서바이벌 맵)
 const res = [];
 for (let s = 1; s <= runs; s++) {
   const rnd = mulberry32(s * 7919);
-  const g = new Game({ seed: s * 101, rand: rnd });
+  const sm = SURVIVAL_MAPS.find((m) => m.key === mode);
+  const g = sm ? new Game({ seed: s * 101, rand: rnd, mode: 'survival', survivalMap: { key: sm.key, name: sm.name, def: decodeMapCode(sm.code) } })
+    : new Game({ seed: s * 101, rand: rnd });
   const errs = [];
   let combos = 0, oneHits = 0;
   g.on('onehit', () => oneHits++);
@@ -72,7 +82,8 @@ for (let s = 1; s <= runs; s++) {
   let r;
   try { r = bot(g, rnd); } catch (e) { errs.push(e.stack); }
   combos = g.towers.filter((t) => t.kind === 'combo').length;
-  res.push({ seed: s, end: g.roundLabel(), result: r, lives: g.lives, mileage: g.mileage, kills: g.stats.kills, lost: g.stats.dragonsLost, broken: g.stats.stonesBroken, combos, oneHits, luck: g.luck, leaks: (g._leaks || []).slice(0, 8).join(' '), ms: Date.now() - t0, errs: errs.length });
+  const rec = g.survivalRecord && g.survivalRecord();
+  res.push({ seed: s, end: g.roundLabel(), dmg: rec ? rec.damage : '', result: r, lives: g.lives, mileage: g.mileage, kills: g.stats.kills, lost: g.stats.dragonsLost, broken: g.stats.stonesBroken, combos, oneHits, luck: g.luck, leaks: (g._leaks || []).slice(0, 8).join(' '), ms: Date.now() - t0, errs: errs.length });
   if (errs.length) console.log(errs[0]);
 }
 console.table(res);

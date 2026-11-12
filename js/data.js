@@ -11,7 +11,8 @@ export const ROUNDS_PER_STAGE = 30;
 export const CHECKPOINTS = 4;
 export const START_LIVES = 20;
 export const START_GOLD = 10;
-export const STONE_REMOVE_COST = 40;
+export const STONE_REMOVE_COST = 0; // v0.5: 돌 깨기 무료 (배치·정비 시간에만)
+export const MONSTER_SPEED_MUL = 1.1; // v0.5: 몬스터 이동 속도 +10%
 
 // 지형
 export const T = { GRASS: 0, ROCK: 1, WATER: 2, MUD: 3, HILL: 4 };
@@ -239,6 +240,26 @@ export const STAGE_HP = 1.3;
 export function hpFor(stage, round) {
   return HP_BASE * Math.pow(HP_GROWTH, round - 1) * Math.pow(STAGE_HP, stage - 1);
 }
+
+// 서바이벌 모드 (v0.5 7번): 80라운드, 한 맵에서 끝까지. 끝나면 데미지 테스터.
+export const SURVIVAL_ROUNDS = 80;
+export const SURVIVAL_CLEAR_BONUS = 90; // 80라운드를 모두 막으면 주는 마일리지 보너스
+export const SURVIVAL_HP_LATE = 1.1; // 30라운드 이후 라운드당 체력 증가율
+export const SURVIVAL_MAX_COUNT = 36; // 한 웨이브 최대 마릿수
+export function survivalHp(round) {
+  const early = Math.min(round, 30);
+  return HP_BASE * Math.pow(HP_GROWTH, early - 1) * Math.pow(SURVIVAL_HP_LATE, Math.max(0, round - 30));
+}
+export function survivalWave(round) {
+  const w = waveFor(1, round);
+  if (w.list.length > SURVIVAL_MAX_COUNT + 1) {
+    const boss = w.list.includes('boss');
+    w.list = w.list.filter((k) => k !== 'boss').slice(0, SURVIVAL_MAX_COUNT);
+    if (boss) w.list.push('boss');
+  }
+  return w;
+}
+
 export function goldPerKill(round) {
   return 1 + Math.floor(round / 6);
 }

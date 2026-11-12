@@ -210,3 +210,15 @@ export function blockLevel(map, fields) {
   }
   return lv;
 }
+
+// 기획자가 맵 만들기 화면에서 확정한 고정 맵(서바이벌)을 게임 맵으로 만든다. 먼저 setGridSize(def.cols, def.rows) 를 불러야 한다.
+export function fixedMap(def, name, key) {
+  const grid = new Uint8Array(N).fill(T.GRASS);
+  for (const [x, y, t] of def.terrain || []) grid[idx(x, y)] = t;
+  const flags = (def.flags || []).map((f) => ({ x: f.x, y: f.y }));
+  const keyCells = [def.spawn, ...flags, def.goal];
+  return {
+    grid, spawn: { ...def.spawn }, goal: { ...def.goal }, flags, points: keyCells.map((p) => idx(p.x, p.y)),
+    biome: name, biomeKey: 'meadow', id: key === 'direct' ? 7702 : 7701, stage: 1, fixed: true, key,
+  };
+}

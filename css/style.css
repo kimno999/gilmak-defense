@@ -213,3 +213,40 @@ h1 { margin: 0; font-family: var(--f-display); font-weight: 400; font-size: 30px
 @media (prefers-reduced-motion: reduce) {
   .btn:active:not(:disabled) { transform: none; }
 }
+
+/* v0.5: 필드 보유 수, 추천, 서바이벌 */
+.piece .cnt { font-size: 10.5px; padding: 0 5px; border: 1px solid var(--line-hi); color: var(--mute); font-variant-numeric: tabular-nums; }
+.piece .cnt.some { color: var(--ice); border-color: var(--ice); }
+.piece .cnt.hot { color: var(--accent-ink); background: var(--good); border-color: var(--good); font-weight: 700; }
+.bubble.rec { background: #8fd8ff; font-size: 10.5px; }
+p.rec { margin: 0; padding: 4px 8px; border-left: 3px solid var(--ice); background: #1a2a3a; color: #dff4ff; font-size: 12.5px; }
+.recs { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.recs h5 { margin: 0; font-size: 11px; letter-spacing: .08em; color: var(--ice); }
+.recrow { display: flex; align-items: center; gap: 8px; text-align: left; font: inherit; font-size: 12px; color: var(--fg); background: var(--surface-hi); border: 1px solid var(--line); padding: 4px 8px; min-height: 44px; cursor: pointer; }
+.recrow:hover { border-color: var(--ice); }
+.recrow canvas { width: 32px; height: 32px; flex: none; }
+.recrow b { font-weight: 700; }
+.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-top: 8px; }
+.modecard { display: flex; flex-direction: column; gap: 2px; background: var(--surface-hi); border: 2px solid var(--line-hi); padding: 10px 12px; text-align: left; font: inherit; color: var(--fg); cursor: pointer; box-shadow: 3px 3px 0 #000; min-height: 64px; }
+.modecard:hover { border-color: var(--accent); }
+.modecard:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 #000; }
+.modecard.primary { border-color: var(--accent); background: #2a2140; }
+.modecard b { font-family: var(--f-display); font-weight: 400; font-size: 17px; color: var(--accent); }
+.modecard span { font-size: 12.5px; color: var(--mute); }
+.smaps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.smap { display: flex; flex-direction: column; gap: 6px; background: var(--surface-hi); border: 2px solid var(--line); padding: 10px; min-width: 0; }
+.smap .sn { font-family: var(--f-display); font-size: 20px; color: var(--accent); }
+.smap .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.mapprev { width: 100%; height: auto; image-rendering: pixelated; border: 2px solid var(--line-hi); }
+.row2 { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.ranklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.ranklist li { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 8px; align-items: center; background: var(--surface-hi); padding: 6px 10px; }
+.ranklist li.me { outline: 2px solid var(--accent); }
+.ranklist .rk { font-family: var(--f-display); color: var(--accent); font-variant-numeric: tabular-nums; }
+.ranklist li:nth-child(-n+3) .rk { color: #fff0b0; }
+.ranklist .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranklist .rc { color: var(--mute); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.nickrow { display: flex; gap: 6px; flex-wrap: wrap; }
+.nick { flex: 1 1 180px; min-width: 0; min-height: 44px; font: inherit; color: var(--fg); background: var(--surface-hi); border: 2px solid var(--line-hi); padding: 6px 10px; }
+.nick:focus-visible { outline: 2px solid var(--ice); outline-offset: 2px; }
+.dmgnum { font-family: var(--f-display); font-size: 30px; color: var(--accent); font-variant-numeric: tabular-nums; margin-top: 4px; }

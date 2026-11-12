@@ -5,8 +5,10 @@ import {
   DRAGONS, DRAGON_KEYS, PIXIE_BUFF, PIXIE_RADIUS, COMBOS, COMBO_BY_ID, UPGRADE_COST,
   MONSTER_KINDS, waveFor, hpFor, goldPerKill, roundBonus, raceFor,
   LUCK_TABLE, MAX_LUCK, rollGrade, metaValue, COMBO_INHERIT, mileageFor,
+  MONSTER_SPEED_MUL, SURVIVAL_ROUNDS, SURVIVAL_CLEAR_BONUS, survivalHp, survivalWave,
+  setGridSize, DEFAULT_COLS, DEFAULT_ROWS,
 } from './data.js';
-import { genStage, computeFields, fullPath, blockLevel, isBuildable, OCC, idx, cx, cy } from './map.js';
+import { genStage, fixedMap, computeFields, fullPath, blockLevel, isBuildable, OCC, idx, cx, cy } from './map.js';
 
 const SHRED_TIME = 3;
 const BREAK_TIME = 0.5;
@@ -24,7 +26,8 @@ export function towerName(t) {
 }
 
 export class Game {
-  constructor({ seed, meta, rand } = {}) {
+  // mode: 'normal' | 'survival'. 서바이벌은 survivalMap = { key, name, def(맵 코드 풀린 것) } 이 필요하다.
+  constructor({ seed, meta, rand, mode, survivalMap } = {}) {
     this.rand = rand || Math.random;
     this.seed = seed ?? ((this.rand() * 4294967296) >>> 0);
     this.meta = meta || { levels: {} };
@@ -35,7 +38,16 @@ export class Game {
     this.gold = START_GOLD;
     this.stats = { roundsCleared: 0, bossKills: 0, stagesCleared: 0, kills: 0, dragonsLost: 0, stonesBroken: 0 };
     this.time = 0;
-    this.startStage(genStage(1, this.seed));
+    this.mode = mode === 'survival' ? 'survival' : 'normal';
+    this.maxRound = this.mode === 'survival' ? SURVIVAL_ROUNDS : ROUNDS_PER_STAGE;
+    if (this.mode === 'survival') {
+      this.survivalMap = survivalMap;
+      setGridSize(survivalMap.def.cols, survivalMap.def.rows);
+      this.startStage(fixedMap(survivalMap.def, survivalMap.name, survivalMap.key));
+    } else {
+      setGridSize(DEFAULT_COLS, DEFAULT_ROWS);
+      this.startStage(genStage(1, this.seed));
+    }
   }
 
   on(ev, fn) { (this.listeners[ev] ||= []).push(fn); }
@@ -205,11 +217,43 @@ export class Game {
     this.checkAlerts();
   }
 
-  keep(t) {
+  // down: 한 단계 내려서 남기기 (v0.5 2번, 알은 못 내림)
+  canDowngrade(t) { return this.phase === 'choose' && !!t && t.pending && t.kind === 'dragon' && t.grade > 0; }
+
+  keep(t, down = false) {
     if (this.phase !== 'choose' || !t || !t.pending) return false;
+    if (down) { if (!this.canDowngrade(t)) return false; t.grade--; }
     this.finishChoose(t);
-    this.toast(`${towerName(t)} 남김. 나머지는 돌이 됐어요`, 'good');
+    this.toast(`${towerName(t)} ${down ? '(한 단계 내려서) ' : ''}남김. 나머지는 돌이 됐어요`, 'good');
     return true;
+  }
+
+  // 필드에 이미 남겨 둔, 종류와 등급이 같은 드래곤 수 (v0.5 1번)
+  fieldCount(type, grade) {
+    let n = 0;
+    for (const t of this.towers) if (!t.pending && t.kind === 'dragon' && t.type === type && t.grade === grade) n++;
+    return n;
+  }
+
+  // 남길 드래곤 추천 (v0.5 3번). rank가 작을수록 먼저 보여 준다.
+  recommendations() {
+    if (this.phase !== 'choose') return [];
+    const out = [];
+    const placed = this.placed();
+    const combosWith = (t, grade) => {
+      const v = { ...t, grade, id: -1 };
+      return COMBOS.filter((c) => this.matchRecipe(c, v, placed));
+    };
+    for (const t of this.pendings()) {
+      if (t.kind !== 'dragon') continue;
+      for (const c of combosWith(t, t.grade)) out.push({ t, rank: 1, kind: 'keep', combo: c, text: `남기면 ${c.name} 조합 완성` });
+      const p2 = this.merge2Partner(t);
+      if (p2 && t.id < p2.id) for (const c of combosWith(t, t.grade + 1)) out.push({ t, rank: 1, kind: 'merge2', combo: c, text: `2마리 합성해서 남기면 ${c.name} 조합 완성` });
+      if (t.grade > 0) for (const c of combosWith(t, t.grade - 1)) out.push({ t, rank: 2, kind: 'down', combo: c, text: `한 단계 내려 남기면 ${c.name} 조합 완성` });
+      if (t.grade < MAX_GRADE && this.fieldCount(t.type, t.grade) >= 2) out.push({ t, rank: 3, kind: 'merge3', text: `남기면 3마리 합성 가능 → ${GRADES[t.grade + 1].name} ${DRAGONS[t.type].short}` });
+      if (t.grade > 0 && this.fieldCount(t.type, t.grade - 1) >= 2) out.push({ t, rank: 4, kind: 'down3', text: `한 단계 내려 남기면 3마리 합성 가능 → ${GRADES[t.grade].name} ${DRAGONS[t.type].short}` });
+    }
+    return out.sort((a, b) => a.rank - b.rank);
   }
 
   merge2Partner(t) {
@@ -329,15 +373,18 @@ export class Game {
     return true;
   }
 
+  canBreakStone() { return this.phase === 'prep' || this.phase === 'place' || this.phase === 'choose'; }
+
   removeStone(x, y) {
-    if (this.phase !== 'prep' && this.phase !== 'place') return false;
+    if (!this.canBreakStone()) { this.toast('돌은 배치·정비 시간에만 깰 수 있어요', 'bad'); return false; }
     const i = idx(x, y);
     if (this.occ[i] !== OCC.STONE) return false;
     if (this.gold < STONE_REMOVE_COST) { this.toast(`골드가 부족해요 (${STONE_REMOVE_COST} 필요)`, 'bad'); return false; }
     this.gold -= STONE_REMOVE_COST;
     this.occ[i] = OCC.EMPTY;
+    this.fx.push({ k: 'break', x: x + 0.5, y: y + 0.5, t: 0, life: 0.5, dragon: false });
     this.refresh();
-    this.toast('돌을 치웠어요');
+    this.toast('돌을 깼어요');
     return true;
   }
 
@@ -345,7 +392,7 @@ export class Game {
 
   buyLuck() {
     const c = this.luckCost();
-    if (c == null || this.phase === 'wave' || this.phase === 'over') return false;
+    if (c == null || this.isFighting() || this.phase === 'over') return false;
     if (this.gold < c) { this.toast(`골드가 부족해요 (${c} 필요)`, 'bad'); return false; }
     this.gold -= c;
     this.luck++;
@@ -435,12 +482,12 @@ export class Game {
   }
 
   // ---------- 웨이브 ----------
-  nextWave() { return waveFor(this.stage, this.round); }
+  nextWave() { return this.mode === 'survival' ? survivalWave(this.round) : waveFor(this.stage, this.round); }
 
   startWave() {
     if (this.phase !== 'prep') return false;
     const w = this.nextWave();
-    const hp = hpFor(this.stage, this.round);
+    const hp = this.mode === 'survival' ? survivalHp(this.round) : hpFor(this.stage, this.round);
     this.spawnQ = w.list.map((k) => ({ kind: k, race: w.race, hp }));
     this.spawnT = 0.3;
     this.phase = 'wave';
@@ -455,12 +502,13 @@ export class Game {
     const hp = Math.max(1, Math.round(s.hp * K.hp));
     const e = {
       id: this.nextId++, kind: s.kind, race: s.race, hp, max: hp,
-      speed: K.speed, armor: K.armor(this.round), fly: !!K.fly, boss: !!K.boss, life: K.life,
+      speed: K.speed * MONSTER_SPEED_MUL, armor: K.armor(this.round), fly: !!K.fly, boss: !!K.boss, life: K.life,
       leg: 0, x: sp.x + 0.5, y: sp.y + 0.5, ox: (this.rand() - 0.5) * 0.3, oy: (this.rand() - 0.5) * 0.3,
       slow: 0, slowT: 0, poison: 0, poisonT: 0, stunT: 0, shreds: {}, breakT: 0, breaking: -1,
       dead: false, gone: false, face: 1, anim: this.rand() * 10,
     };
     this.enemies.push(e);
+    return e;
   }
 
   shredOf(e) {
@@ -473,6 +521,7 @@ export class Game {
     if (e.dead || e.gone) return 0;
     let d = raw * MATCHUP[elem][e.race];
     if (!opts.trueDmg) d *= armorFactor(e.armor - this.shredOf(e));
+    if (e.tester) { this.testerDamage += d; return d; } // 데미지 테스터는 죽지 않고 받은 데미지만 센다
     e.hp -= d;
     if (opts.crit) this.fx.push({ k: 'crit', x: e.x, y: e.y - 0.4, t: 0, life: 0.6 });
     if (e.hp <= 0) this.kill(e);
@@ -552,6 +601,7 @@ export class Game {
 
   leak(e) {
     e.gone = true;
+    if (e.tester) { this.finishSurvival(); return; }
     this.lives -= e.life;
     this.emit('leak', e);
     if (this.lives <= 0) { this.lives = 0; this.gameOver(); }
@@ -616,9 +666,12 @@ export class Game {
     }
   }
 
+  isFighting() { return this.phase === 'wave' || this.phase === 'tester'; }
+
   update(dt) {
-    if (this.phase !== 'wave') return;
+    if (!this.isFighting()) return;
     this.time += dt;
+    if (this.phase === 'tester') this.testerTime += dt;
     if (this.spawnQ.length) {
       this.spawnT -= dt;
       if (this.spawnT <= 0) {
@@ -743,7 +796,11 @@ export class Game {
     this.stats.roundsCleared++;
     this.projs = []; this.pools = [];
     this.emit('wavecleared', { round: this.round, bonus, interest: intr });
-    if (this.round >= ROUNDS_PER_STAGE) {
+    if (this.mode === 'survival' && this.round >= this.maxRound) {
+      this.startTester();
+      return;
+    }
+    if (this.round >= this.maxRound) {
       this.stats.stagesCleared++;
       this.phase = 'stageclear';
       this.emit('stageclear');
@@ -763,11 +820,37 @@ export class Game {
     this.startStage(genStage(this.stage + 1, this.seed));
   }
 
+  // ---------- 서바이벌: 데미지 테스터 (v0.5 7번) ----------
+  startTester() {
+    this.phase = 'tester';
+    this.testerDamage = 0;
+    this.testerTime = 0;
+    this.stats.survivalClear = true;
+    const e = this.spawn({ kind: 'boss', race: raceFor(this.round + 1), hp: survivalHp(this.maxRound) });
+    e.tester = true; e.life = 0;
+    this.toast('80라운드 클리어! 죽지 않는 데미지 테스터가 걸어가요. 들어간 데미지를 재요', 'good');
+    this.emit('tester');
+    this.emit('change');
+  }
+
+  finishSurvival() {
+    this.result = { cleared: true, round: this.maxRound, damage: Math.round(this.testerDamage) };
+    this.gameOver();
+  }
+
+  // 서바이벌 기록: 끝까지 가면 데미지, 아니면 도달 라운드
+  survivalRecord() {
+    if (this.mode !== 'survival') return null;
+    if (this.result && this.result.cleared) return { ...this.result };
+    return { cleared: false, round: this.round, damage: 0 };
+  }
+
   // 지금 진행만큼의 마일리지 (진행 중인 웨이브의 라운드는 빼고)
-  mileageNow() { return mileageFor(this.stats); }
+  mileageNow() { return mileageFor(this.stats) + (this.stats.survivalClear ? SURVIVAL_CLEAR_BONUS : 0); }
 
   giveUp() {
     if (this.phase === 'over') return 0;
+    if (this.phase === 'tester') { this.finishSurvival(); return this.mileage; }
     this.gaveUp = true;
     this.gameOver();
     return this.mileage;
@@ -801,12 +884,12 @@ export class Game {
   gameOver() {
     if (this.phase === 'over') return;
     this.phase = 'over';
-    this.mileage = mileageFor(this.stats);
+    this.mileage = this.mileageNow();
     this.emit('over', this.mileage);
     this.emit('change');
   }
 
   // 정보
-  roundLabel() { return `${this.stage}-${this.round}`; }
+  roundLabel() { return this.mode === 'survival' ? `${this.round} / ${this.maxRound}` : `${this.stage}-${this.round}`; }
   nextRace() { return raceFor(this.round); }
 }
