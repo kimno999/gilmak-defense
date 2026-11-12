@@ -5,7 +5,8 @@ import { OCC, cx, cy } from './map.js';
 import { drawWorld, waterSparkles } from './hd-art.js';
 import { towerSprite, monsterSprite, stoneSprite, flagSprite, portalSprite, gateSprite, drawText } from './sprites.js';
 
-const W = COLS * TILE, H = ROWS * TILE, S = 2;
+let W = COLS * TILE, H = ROWS * TILE;
+const S = 2;
 const AMBIENT = {
   meadow: ['#fff2d6', '#c9c0d8', '#6e78b8'],
   canyon: ['#ffe8c0', '#d8b898', '#8a6a78'],
@@ -18,17 +19,14 @@ const AMBIENT = {
 export class Renderer {
   constructor(canvas) {
     this.cv = canvas;
-    canvas.width = W * S; canvas.height = H * S;
-    canvas.style.aspectRatio = `${COLS} / ${ROWS}`;
     this.dg = canvas.getContext('2d');
-    this.low = document.createElement('canvas'); this.low.width = W; this.low.height = H;
+    this.low = document.createElement('canvas');
     this.g = this.low.getContext('2d');
-    this.g.imageSmoothingEnabled = false;
-    this.small = document.createElement('canvas'); this.small.width = W / 2; this.small.height = H / 2;
+    this.small = document.createElement('canvas');
     this.sg = this.small.getContext('2d');
-    this.tmp = document.createElement('canvas'); this.tmp.width = W * S; this.tmp.height = H * S;
+    this.tmp = document.createElement('canvas');
     this.tg = this.tmp.getContext('2d');
-    this.terrain = null; this.terrainId = null;
+    this.resize();
     this.reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.light = true;
     const c = document.createElement('canvas').getContext('2d');
@@ -36,6 +34,19 @@ export class Renderer {
     this.filterOK = c.filter === 'blur(2px)';
     this.motes = Array.from({ length: 36 }, () => ({ x: Math.random() * W, y: Math.random() * H, s: 0.15 + Math.random() * 0.3, p: Math.random() * 6 }));
     this.lastT = 0;
+  }
+
+  // 맵 크기가 바뀌면 버퍼를 다시 만든다
+  resize() {
+    W = COLS * TILE; H = ROWS * TILE;
+    this.cols = COLS; this.rows = ROWS;
+    this.cv.width = W * S; this.cv.height = H * S;
+    this.cv.style.aspectRatio = `${COLS} / ${ROWS}`;
+    this.low.width = W; this.low.height = H;
+    this.g.imageSmoothingEnabled = false;
+    this.small.width = W / 2; this.small.height = H / 2;
+    this.tmp.width = W * S; this.tmp.height = H * S;
+    this.terrain = null; this.terrainId = null;
   }
 
   buildTerrain(map) {
@@ -74,6 +85,7 @@ export class Renderer {
     const t = this.reduced ? 0 : now / 1000;
     const dt = Math.min(0.1, Math.max(0, t - this.lastT)); this.lastT = t;
     const fr = (speed, off = 0) => (this.reduced ? 0 : Math.floor(t * speed + off) % 4);
+    if (this.cols !== COLS || this.rows !== ROWS) this.resize();
     if (this.terrainId !== game.map.id) this.buildTerrain(game.map);
     const m = game.map;
     const lights = [];

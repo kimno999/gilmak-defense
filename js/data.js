@@ -1,8 +1,11 @@
 // Dragon Merge & Maze 게임 데이터. 수치의 기준은 RULES.md 이다.
 
-export const COLS = 22;
-export const ROWS = 15;
-export const N = COLS * ROWS;
+// 맵 크기. 서바이벌 다이렉트맵처럼 크기가 다른 맵을 쓰려면 setGridSize 로 바꾼다 (가져다 쓰는 쪽에 바로 반영됨)
+export let COLS = 22;
+export let ROWS = 15;
+export let N = COLS * ROWS;
+export const DEFAULT_COLS = 22, DEFAULT_ROWS = 15;
+export function setGridSize(cols, rows) { COLS = cols; ROWS = rows; N = cols * rows; }
 export const TILE = 32;
 export const ROUNDS_PER_STAGE = 30;
 export const CHECKPOINTS = 4;
