@@ -1,4 +1,4 @@
-// 길막 디펜스 게임 데이터. 수치의 기준은 RULES.md 이다.
+// Dragon Merge & Maze 게임 데이터. 수치의 기준은 RULES.md 이다.
 
 export const COLS = 24;
 export const ROWS = 16;

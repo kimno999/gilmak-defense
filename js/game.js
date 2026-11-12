@@ -1,4 +1,4 @@
-// 길막 디펜스 게임 로직 (화면과 분리). 규칙의 기준은 RULES.md.
+// Dragon Merge & Maze 게임 로직 (화면과 분리). 규칙의 기준은 RULES.md.
 import {
   COLS, ROWS, N, T, ROUNDS_PER_STAGE, START_LIVES, START_GOLD, STONE_REMOVE_COST, HILL_RANGE,
   GRADES, MAX_GRADE, GRADE_DMG, GRADE_RANGE, GRADE_RATE, MATCHUP,

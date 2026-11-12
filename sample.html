@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dragon Merge &amp; Maze 그래픽 샘플</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .wrap { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+  .scene { position: relative; border: 2px solid var(--line-hi); box-shadow: 4px 4px 0 #000; background: #000; }
+  #scene { display: block; width: 100%; height: auto; aspect-ratio: 8 / 5; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .gallery { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .card { background: var(--surface); border: 2px solid var(--line); padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+  .card canvas { width: 100%; max-width: 128px; aspect-ratio: 1; image-rendering: pixelated; }
+  .card b { font-size: 13px; text-align: center; }
+  .card span { font-size: 11px; color: var(--mute); text-align: center; }
+  .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .cmp .card canvas { max-width: 100%; aspect-ratio: auto; }
+  .note { color: var(--mute); font-size: 13px; max-width: 70ch; margin: 0; }
+  h2.sec { margin: 0; font-family: var(--f-display); font-weight: 400; font-size: 21px; color: var(--accent); }
+  @media (max-width: 700px) { .gallery { grid-template-columns: repeat(3, 1fr); } .cmp { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>그래픽 샘플</h1>
+      <p class="sub">Dragon Merge &amp; Maze · 옥토패스 트래블러 느낌을 목표로 한 고급 도트 샘플이에요. 게임에는 아직 적용되지 않았어요.</p>
+    </div>
+    <div class="topbtns"><a class="btn small" href="./" style="text-decoration:none;display:inline-flex;align-items:center">게임으로 돌아가기</a></div>
+  </header>
+
+  <section class="scene">
+    <canvas id="scene" width="1024" height="640" aria-label="새 그래픽으로 그린 전장 장면"></canvas>
+  </section>
+  <div class="row">
+    <button class="btn primary" type="button" id="btnLight">빛 효과 끄기</button>
+    <button class="btn" type="button" id="btnPause">멈추기</button>
+    <p class="note">빛 효과를 껐다 켜 보면 차이를 볼 수 있어요. 켜면 광원, 빛 번짐, 빛줄기, 화면 위아래 흐림, 가장자리 어둡게가 더해져요.</p>
+  </div>
+
+  <h2 class="sec">레드 드래곤 5단계</h2>
+  <div class="gallery" id="gallery"></div>
+
+  <h2 class="sec">지금 그래픽과 비교</h2>
+  <div class="cmp">
+    <div class="card"><canvas id="oldCmp" width="96" height="20"></canvas><b>지금 (16픽셀, 명암 2~3단계)</b></div>
+    <div class="card"><canvas id="newCmp" width="176" height="36"></canvas><b>새 샘플 (32픽셀, 명암 5~7단계, 날갯짓)</b></div>
+  </div>
+  <p class="note">새 샘플은 한 칸이 32픽셀이라 지금보다 디테일이 4배예요. 색은 그림자 쪽을 보라빛으로, 밝은 쪽을 노란빛으로 틀어서 풍부하게 칠했고, 외곽선도 검은색 대신 몸 색에 맞췄어요.</p>
+</div>
+
+<script type="module">
+import { redDragon, soldier, drawTerrain, waterSparkles, stoneBlock, flag } from './js/hd-art.js';
+import { dragonSprite } from './js/sprites.js';
+
+const COLS = 8, ROWS = 5, T = 32, W = COLS * T, H = ROWS * T, S = 4;
+const disp = document.getElementById('scene');
+const dg = disp.getContext('2d');
+const low = document.createElement('canvas'); low.width = W; low.height = H;
+const g = low.getContext('2d');
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let lightOn = true, paused = false;
+
+// 지형: 2 물
+const grid = [
+  0, 0, 0, 0, 0, 0, 2, 2,
+  0, 0, 0, 0, 0, 0, 2, 2,
+  0, 0, 0, 0, 0, 0, 0, 2,
+  0, 0, 0, 0, 0, 0, 0, 0,
+  2, 2, 0, 0, 0, 0, 0, 0,
+];
+const terrain = document.createElement('canvas'); terrain.width = W; terrain.height = H;
+drawTerrain(terrain.getContext('2d'), grid, COLS, ROWS, 11);
+
+// 미리 프레임 만들기
+const dragons = [0, 1, 2, 3, 4].map((gr) => [0, 1, 2, 3].map((f) => redDragon(gr, f)));
+const soldiers = [0, 1, 2, 3].map((f) => soldier(f));
+const flags = [0, 1, 2, 3].map((f) => flag(2, f));
+const stones = [stoneBlock(0), stoneBlock(1)];
+
+// 장면 배치 (타일 좌표)
+const stonePos = [[2, 0], [2, 1], [4, 2], [4, 3], [4, 4], [6, 3]];
+const dragonPos = [[1, 1, 0], [2, 3, 1], [3, 3, 2], [4, 0, 3], [6, 2, 4]]; // [x, y, 단계], 고위 드래곤은 왼쪽을 본다
+const FLIP = 4;
+const flagPos = [6, 4];
+// 병사 경로 (픽셀): 왼쪽 위에서 들어와 미로를 따라 내려간다
+const path = [[-16, 80], [112, 80], [112, 48], [176, 48], [176, 144], [240, 144], [240, 112], [276, 112]];
+const plen = []; let acc = 0;
+for (let i = 0; i < path.length - 1; i++) { const d = Math.hypot(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1]); plen.push(d); acc += d; }
+const total = acc;
+const posAt = (dist) => {
+  dist = ((dist % total) + total) % total;
+  for (let i = 0; i < plen.length; i++) {
+    if (dist <= plen[i]) { const t = dist / plen[i]; return [path[i][0] + (path[i + 1][0] - path[i][0]) * t, path[i][1] + (path[i + 1][1] - path[i][1]) * t, path[i + 1][0] >= path[i][0] ? 1 : -1]; }
+    dist -= plen[i];
+  }
+  return path[0];
+};
+
+const units = [0, 55, 110, 165, 220].map((o) => ({ off: o, hp: 1, flash: 0 }));
+const fireballs = [];
+const sparks = [];
+const motes = Array.from({ length: 28 }, (_, i) => ({ x: Math.random() * W, y: Math.random() * H, s: 0.15 + Math.random() * 0.3, p: Math.random() * 6 }));
+let fireCool = 0.6;
+let time = 0;
+
+function shadow(x, y, w) {
+  g.fillStyle = 'rgba(10,8,24,0.38)';
+  g.beginPath(); g.ellipse(Math.round(x), Math.round(y), w, w * 0.32, 0, 0, Math.PI * 2); g.fill();
+}
+
+function drawLow(t) {
+  g.imageSmoothingEnabled = false;
+  g.drawImage(terrain, 0, 0);
+  if (!reduced) waterSparkles(g, grid, COLS, ROWS, t);
+  // 경로 점선 (출발 → 도착 방향으로 흐름)
+  const off = Math.floor(t * 12) % 8;
+  g.fillStyle = 'rgba(255,214,110,0.75)';
+  let d = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const [ax, ay] = path[i], [bx, by] = path[i + 1];
+    const len = Math.max(Math.abs(bx - ax), Math.abs(by - ay));
+    for (let s = 0; s < len; s++, d++) if ((d - off + 800) % 8 < 3) g.fillRect(ax + Math.sign(bx - ax) * s, ay + Math.sign(by - ay) * s + 6, 1, 1);
+  }
+  // 그림자 먼저, 그다음 위에서 아래 순서로 그리기
+  const items = [];
+  for (const [x, y] of stonePos) items.push({ y: y * T + 30, draw: () => g.drawImage(stones[(x + y) % 2], x * T, y * T) });
+  dragonPos.forEach(([x, y, gr]) => {
+    const f = reduced ? 0 : Math.floor(t * 5 + x) % 4;
+    items.push({ y: y * T + 29, draw: () => {
+      shadow(x * T + 16, y * T + 29, gr >= 3 ? 11 : 8);
+      if (gr === FLIP) { g.save(); g.translate(x * T + 32, y * T); g.scale(-1, 1); g.drawImage(dragons[gr][f], 0, 0); g.restore(); }
+      else g.drawImage(dragons[gr][f], x * T, y * T);
+    } });
+  });
+  items.push({ y: flagPos[1] * T + 29, draw: () => { shadow(flagPos[0] * T + 9, flagPos[1] * T + 29, 4); g.drawImage(flags[reduced ? 0 : Math.floor(t * 6) % 4], flagPos[0] * T, flagPos[1] * T); } });
+  for (const u of units) {
+    if (u.hp <= 0) continue;
+    const [x, y, face] = posAt(t * 22 + u.off);
+    u.x = x; u.y = y;
+    const f = reduced ? 0 : Math.floor(t * 8 + u.off) % 4;
+    items.push({ y: y + 14, draw: () => {
+      shadow(x, y + 14, 6);
+      g.save();
+      if (face < 0) { g.translate(Math.round(x) + 16, Math.round(y) - 16); g.scale(-1, 1); g.drawImage(soldiers[f], 0, 0); }
+      else g.drawImage(soldiers[f], Math.round(x) - 16, Math.round(y) - 16);
+      g.restore();
+      if (u.flash > 0) { g.globalCompositeOperation = 'lighter'; g.globalAlpha = u.flash; g.drawImage(soldiers[f], Math.round(x) - 16, Math.round(y) - 16); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; }
+    } });
+  }
+  items.sort((a, b) => a.y - b.y).forEach((it) => it.draw());
+  // 불덩이와 불티
+  for (const b of fireballs) {
+    for (let k = 0; k < b.trail.length; k++) { const [x, y] = b.trail[k]; g.fillStyle = k < 3 ? '#ff5a10' : '#ffa21c'; g.fillRect(Math.round(x), Math.round(y), 1, 1); }
+    g.fillStyle = '#ffa21c'; g.fillRect(Math.round(b.x) - 1, Math.round(b.y) - 1, 3, 3);
+    g.fillStyle = '#fffbd0'; g.fillRect(Math.round(b.x), Math.round(b.y), 1, 1);
+  }
+  for (const p of sparks) { g.fillStyle = p.c; g.fillRect(Math.round(p.x), Math.round(p.y), 1, 1); }
+}
+
+function update(dt) {
+  time += dt;
+  for (const u of units) {
+    if (u.flash > 0) u.flash -= dt * 3;
+    if (u.hp <= 0) { u.dead = (u.dead || 0) + dt; if (u.dead > 1.5) { u.hp = 1; u.dead = 0; } }
+  }
+  // 고위 드래곤이 불을 뿜는다
+  fireCool -= dt;
+  const [dx, dy] = [6 * T + 2, 2 * T + 9];
+  if (fireCool <= 0) {
+    const tgt = units.filter((u) => u.hp > 0 && u.x != null).sort((a, b) => Math.hypot(a.x - dx, a.y - dy) - Math.hypot(b.x - dx, b.y - dy))[0];
+    if (tgt && Math.hypot(tgt.x - dx, tgt.y - dy) < 120) { fireballs.push({ x: dx, y: dy, t: tgt, trail: [] }); fireCool = 0.9; }
+    else fireCool = 0.2;
+  }
+  for (const b of fireballs) {
+    const tx = b.t.x, ty = b.t.y, d = Math.hypot(tx - b.x, ty - b.y), sp = 140 * dt;
+    b.trail.unshift([b.x, b.y]); if (b.trail.length > 6) b.trail.pop();
+    if (d < sp + 2 || b.t.hp <= 0) {
+      b.done = true;
+      b.t.flash = 1; b.t.hits = (b.t.hits || 0) + 1;
+      if (b.t.hits % 3 === 0) b.t.hp = 0;
+      for (let k = 0; k < 14; k++) { const a = Math.random() * 6.28, v = 20 + Math.random() * 40; sparks.push({ x: tx, y: ty, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 20, life: 0.5 + Math.random() * 0.4, c: Math.random() < 0.5 ? '#ffa21c' : '#ffe066' }); }
+    } else { b.x += ((tx - b.x) / d) * sp; b.y += ((ty - b.y) / d) * sp; }
+  }
+  for (let i = fireballs.length - 1; i >= 0; i--) if (fireballs[i].done) fireballs.splice(i, 1);
+  for (const p of sparks) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 60 * dt; p.life -= dt; }
+  for (let i = sparks.length - 1; i >= 0; i--) if (sparks[i].life <= 0) sparks.splice(i, 1);
+  // 알 둥지와 고위 드래곤 주변 불티
+  if (Math.random() < dt * 6) sparks.push({ x: 6 * T + 6 + Math.random() * 8, y: 2 * T + 20, vx: (Math.random() - 0.5) * 6, vy: -18 - Math.random() * 10, life: 1.2, c: '#ff8a4c' });
+  for (const m of motes) { m.y -= m.s * 6 * dt; m.x += Math.sin(time + m.p) * 2 * dt; if (m.y < -2) { m.y = H + 2; m.x = Math.random() * W; } }
+}
+
+// 캔버스 필터 지원 확인 (사파리 일부는 없음)
+const filterOK = (() => { const c = document.createElement('canvas').getContext('2d'); c.filter = 'blur(2px)'; return c.filter === 'blur(2px)'; })();
+const tmp = document.createElement('canvas'); tmp.width = disp.width; tmp.height = disp.height;
+const tg = tmp.getContext('2d');
+const small = document.createElement('canvas'); small.width = W; small.height = H;
+const sg = small.getContext('2d');
+
+function lights(t) {
+  const L = [];
+  // 스프라이트가 가진 광원
+  dragonPos.forEach(([x, y, gr]) => {
+    const spr = dragons[gr][0];
+    for (const [lx, ly, col, r] of spr.glow || []) L.push([x * T + (gr === FLIP ? 32 - lx : lx), y * T + ly, col, r * 3.2 * (0.9 + 0.1 * Math.sin(t * 6 + x))]);
+  });
+  for (const b of fireballs) L.push([b.x, b.y, 'rgba(255,150,50,0.95)', 26]);
+  for (const p of sparks) if (p.life > 0.3) L.push([p.x, p.y, 'rgba(255,140,40,0.35)', 6]);
+  return L;
+}
+
+function post(t) {
+  dg.imageSmoothingEnabled = false;
+  dg.globalCompositeOperation = 'source-over';
+  dg.drawImage(low, 0, 0, W * S, H * S);
+  if (!lightOn) return;
+  const DW = disp.width, DH = disp.height;
+  // 1) 해 질 녘 색감: 왼쪽 위는 따뜻하게, 오른쪽 아래는 서늘하게
+  const grade = dg.createLinearGradient(0, 0, DW, DH);
+  grade.addColorStop(0, '#fff2d6'); grade.addColorStop(0.55, '#c9c0d8'); grade.addColorStop(1, '#6e78b8');
+  dg.globalCompositeOperation = 'multiply';
+  dg.fillStyle = grade; dg.fillRect(0, 0, DW, DH);
+  // 2) 빛줄기
+  dg.globalCompositeOperation = 'screen';
+  for (let k = 0; k < 4; k++) {
+    const x0 = 80 + k * 210 + Math.sin(t * 0.3 + k) * 20;
+    const grd = dg.createLinearGradient(x0, 0, x0 + 260, DH);
+    grd.addColorStop(0, 'rgba(255,236,190,0.16)'); grd.addColorStop(1, 'rgba(255,236,190,0)');
+    dg.fillStyle = grd;
+    dg.beginPath(); dg.moveTo(x0, 0); dg.lineTo(x0 + 70, 0); dg.lineTo(x0 + 380, DH); dg.lineTo(x0 + 250, DH); dg.closePath(); dg.fill();
+  }
+  // 3) 광원
+  dg.globalCompositeOperation = 'lighter';
+  for (const [x, y, col, r] of lights(t)) {
+    const R = r * S;
+    const grd = dg.createRadialGradient(x * S, y * S, 0, x * S, y * S, R);
+    grd.addColorStop(0, col); grd.addColorStop(1, 'rgba(0,0,0,0)');
+    dg.fillStyle = grd; dg.fillRect(x * S - R, y * S - R, R * 2, R * 2);
+  }
+  // 4) 떠다니는 빛 먼지
+  for (const m of motes) {
+    const a = 0.25 + 0.25 * Math.sin(t * 2 + m.p);
+    dg.fillStyle = `rgba(255,240,200,${a})`;
+    dg.fillRect(Math.round(m.x) * S, Math.round(m.y) * S, S, S);
+  }
+  // 5) 빛 번짐 (밝은 곳만 흐리게 더하기)
+  if (filterOK) {
+    sg.clearRect(0, 0, W, H);
+    sg.filter = 'brightness(0.7) contrast(2.2) blur(2px)';
+    sg.drawImage(disp, 0, 0, W, H);
+    sg.filter = 'none';
+    dg.globalCompositeOperation = 'screen';
+    dg.globalAlpha = 0.55;
+    dg.imageSmoothingEnabled = true;
+    dg.drawImage(small, 0, 0, DW, DH);
+    dg.globalAlpha = 1;
+    // 6) 화면 위아래 흐림 (미니어처 느낌)
+    tg.clearRect(0, 0, DW, DH);
+    tg.filter = 'blur(3px)';
+    tg.drawImage(disp, 0, 0);
+    tg.filter = 'none';
+    tg.globalCompositeOperation = 'destination-in';
+    const mask = tg.createLinearGradient(0, 0, 0, DH);
+    mask.addColorStop(0, 'rgba(0,0,0,1)'); mask.addColorStop(0.2, 'rgba(0,0,0,0)');
+    mask.addColorStop(0.8, 'rgba(0,0,0,0)'); mask.addColorStop(1, 'rgba(0,0,0,1)');
+    tg.fillStyle = mask; tg.fillRect(0, 0, DW, DH);
+    tg.globalCompositeOperation = 'source-over';
+    dg.globalCompositeOperation = 'source-over';
+    dg.drawImage(tmp, 0, 0);
+    dg.imageSmoothingEnabled = false;
+  }
+  // 7) 가장자리 어둡게
+  dg.globalCompositeOperation = 'source-over';
+  const v = dg.createRadialGradient(DW / 2, DH / 2, DH * 0.35, DW / 2, DH / 2, DW * 0.68);
+  v.addColorStop(0, 'rgba(8,6,20,0)'); v.addColorStop(1, 'rgba(8,6,20,0.62)');
+  dg.fillStyle = v; dg.fillRect(0, 0, DW, DH);
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now;
+  if (!paused) update(reduced ? 0 : dt);
+  drawLow(time);
+  post(time);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+document.getElementById('btnLight').addEventListener('click', (e) => { lightOn = !lightOn; e.target.textContent = lightOn ? '빛 효과 끄기' : '빛 효과 켜기'; });
+document.getElementById('btnPause').addEventListener('click', (e) => { paused = !paused; e.target.textContent = paused ? '움직이기' : '멈추기'; });
+
+// 갤러리: 5단계 애니메이션
+const names = [['알', 'Dragon Egg'], ['해츨링', 'Hatchling'], ['어린 비룡', 'Whelp'], ['성체 드래곤', 'Drake'], ['고위 드래곤', 'Dragon']];
+const gal = document.getElementById('gallery');
+const galCanvases = names.map(([ko], i) => {
+  const card = document.createElement('div'); card.className = 'card';
+  const c = document.createElement('canvas'); c.width = 32; c.height = 32;
+  const b = document.createElement('b'); b.textContent = `${i + 1}단계 ${ko}`;
+  card.append(c, b); gal.append(card);
+  return c;
+});
+setInterval(() => {
+  const f = reduced ? 0 : Math.floor(performance.now() / 200) % 4;
+  galCanvases.forEach((c, i) => { const x = c.getContext('2d'); x.clearRect(0, 0, 32, 32); x.drawImage(dragons[i][f], 0, 0); });
+}, 100);
+
+// 비교
+const oc = document.getElementById('oldCmp').getContext('2d');
+for (let i = 0; i < 5; i++) oc.drawImage(dragonSprite('red', i), 2 + i * 19, 2);
+const nc = document.getElementById('newCmp').getContext('2d');
+for (let i = 0; i < 5; i++) nc.drawImage(dragons[i][0], 2 + i * 35, 2);
+for (const id of ['oldCmp', 'newCmp']) { const c = document.getElementById(id); c.style.width = '100%'; c.style.imageRendering = 'pixelated'; }
+</script>
+</body>
+</html>

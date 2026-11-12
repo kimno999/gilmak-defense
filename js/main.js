@@ -86,7 +86,7 @@ function showTitle() {
     el('p', { text: '라운드마다 드래곤 5마리를 놓고 1마리만 남기세요. 나머지는 돌이 되어 미로가 됩니다. 몬스터를 오래 돌아가게 만들어 섬멸하세요.' }),
     meta.best ? el('p', { text: `최고 기록 ${meta.best} · 보유 마일리지 ${meta.mileage}` }) : el('p', { text: `보유 마일리지 ${meta.mileage}` }),
   );
-  openModal('길막 디펜스', body, [
+  openModal('Dragon Merge & Maze', body, [
     el('button', { class: 'btn', type: 'button', text: '영구 강화', onclick: () => showMeta(showTitle) }),
     el('button', { class: 'btn', type: 'button', text: '튜토리얼', onclick: () => showTutorial(0, showTitle) }),
     el('button', { class: 'btn primary', type: 'button', text: '게임 시작', onclick: () => {
@@ -559,7 +559,7 @@ document.addEventListener('keydown', (e) => {
 let last = performance.now();
 let lastHud = '';
 function frame(now) {
-  const dt = Math.min(0.1, (now - last) / 1000);
+  const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
   last = now;
   if (game) {
     view.paused = paused && game.phase === 'wave';
