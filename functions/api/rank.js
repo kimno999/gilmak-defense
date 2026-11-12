@@ -2,7 +2,7 @@
 // KV 바인딩 이름: RANK  (클라우드플레어 대시보드 → Pages 프로젝트 → 설정 → 바인딩)
 // GET  /api/rank?map=cross            → { ok, list }
 // POST /api/rank { map, name, round, damage, cleared } → { ok, list, rank }
-const MAPS = ['cross', 'direct'];
+const MAPS = ['cross', 'cross2', 'direct']; // cross2: 26×21 새 십자경로맵 (맵이 바뀌면 순위를 새로 시작)
 const MAX_ROUND = 80;
 const KEEP = 100;
 

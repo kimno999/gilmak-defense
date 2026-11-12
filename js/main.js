@@ -102,6 +102,8 @@ function showTitle() {
 
 // ---------- 서바이벌: 맵 고르기, 순위표 (v0.5 7번) ----------
 const SMAPS = SURVIVAL_MAPS.map((m) => ({ ...m, def: decodeMapCode(m.code) }));
+// 순위·내 기록은 맵 버전별 키로 저장한다 (맵이 바뀌면 새로 시작)
+const rk = (key) => (SMAPS.find((m) => m.key === key) || {}).rankKey || key;
 function mapPreview(def) {
   const k = 9, c = document.createElement('canvas');
   c.width = def.cols * k; c.height = def.rows * k; c.className = 'mapprev';
@@ -124,7 +126,7 @@ function showSurvival() {
     mapPreview(m.def),
     el('div', { class: 'sn', text: m.name }),
     el('div', { class: 'meta', style: 'margin:0', text: `${m.desc} · ${m.def.cols} × ${m.def.rows}칸 · 깃발 ${m.def.flags.length}개` }),
-    el('div', { class: 'meta', style: 'margin:0;color:var(--fg)', text: `내 최고 기록: ${recordText(myBest(m.key))}` }),
+    el('div', { class: 'meta', style: 'margin:0;color:var(--fg)', text: `내 최고 기록: ${recordText(myBest(rk(m.key)))}` }),
     el('div', { class: 'acts' },
       el('button', { class: 'btn small', type: 'button', text: '순위표', onclick: () => showRanking(m.key, showSurvival) }),
       el('button', { class: 'btn small primary', type: 'button', text: '이 맵으로 시작', onclick: () => startGame({ mode: 'survival', map: m.key }) }))));
@@ -138,9 +140,9 @@ async function showRanking(mapKey, back, highlight) {
   const m = SMAPS.find((x) => x.key === mapKey);
   const box = el('div', { class: 'rank' }, el('p', { class: 'meta', text: '순위표를 불러오는 중이에요…' }));
   const tabs = el('div', { class: 'row2' }, ...SMAPS.map((x) => el('button', { class: `btn small${x.key === mapKey ? ' primary' : ''}`, type: 'button', text: x.name, onclick: () => showRanking(x.key, back, highlight) })));
-  openModal(`서바이벌 순위표 · ${m.name}`, [tabs, el('p', { class: 'meta', text: `내 최고 기록 (이 기기): ${recordText(myBest(mapKey))}` }), box],
+  openModal(`서바이벌 순위표 · ${m.name}`, [tabs, el('p', { class: 'meta', text: `내 최고 기록 (이 기기): ${recordText(myBest(rk(mapKey)))}` }), box],
     [el('button', { class: 'btn primary', type: 'button', text: '돌아가기', onclick: () => (back ? back() : closeModal()) })], { closable: !back });
-  const r = await fetchRank(mapKey);
+  const r = await fetchRank(rk(mapKey));
   if (!r.ok) { setKids(box, el('p', { class: 'meta', text: '지금은 순위 서버에 연결할 수 없어요. 내 기록은 이 기기에 저장돼요.' })); return; }
   if (!r.list.length) { setKids(box, el('p', { class: 'meta', text: '아직 기록이 없어요. 첫 기록의 주인공이 되어 보세요!' })); return; }
   setKids(box, el('ol', { class: 'ranklist' }, ...r.list.map((e, i) => el('li', { class: e.name === highlight ? 'me' : '' },
@@ -444,7 +446,7 @@ function onSurvivalOver(mileage) {
   saveMeta();
   const rec = game.survivalRecord();
   const mapKey = game.survivalMap.key, mapName = game.survivalMap.name;
-  const isNew = saveBest(mapKey, rec);
+  const isNew = saveBest(rk(mapKey), rec);
   if (quitKind === 'restart') { quitKind = null; toast(`마일리지 +${mileage}을(를) 받았어요`, 'good'); startGame(); return; }
   const gave = quitKind === 'giveup';
   quitKind = null;
@@ -456,7 +458,7 @@ function onSurvivalOver(mileage) {
     if (!name) { status.textContent = '닉네임을 먼저 적어 주세요.'; input.focus(); return; }
     nick.set(name);
     submit.disabled = true; status.textContent = '등록하는 중이에요…';
-    const r = await submitRank(mapKey, name, rec);
+    const r = await submitRank(rk(mapKey), name, rec);
     if (!r.ok) { submit.disabled = false; status.textContent = '지금은 순위 서버에 연결할 수 없어요. 기록은 이 기기에 저장됐어요.'; return; }
     status.textContent = r.kept ? `예전 기록이 더 좋아서 그대로 뒀어요. 지금 ${r.rank}위예요.` : `등록했어요! ${mapName} ${r.rank}위예요.`;
   } });
@@ -471,7 +473,7 @@ function onSurvivalOver(mileage) {
       el('div', {}, el('span', { text: '얻은 마일리지' }), el('b', { text: `+${mileage}` })),
       el('div', {}, el('span', { text: '보유 마일리지' }), el('b', { text: meta.mileage })),
     ),
-    el('p', { text: isNew ? `이 맵 내 최고 기록이에요! (${recordText(rec)})` : `이 맵 내 최고 기록: ${recordText(myBest(mapKey))}` }),
+    el('p', { text: isNew ? `이 맵 내 최고 기록이에요! (${recordText(rec)})` : `이 맵 내 최고 기록: ${recordText(myBest(rk(mapKey)))}` }),
     el('div', { class: 'nickrow' }, input, submit), status,
   ], [
     el('button', { class: 'btn', type: 'button', text: '순위표', onclick: () => showRanking(mapKey, () => onSurvivalMenu(), nick.get()) }),
@@ -809,8 +811,20 @@ function renderHud() {
   }
 }
 
+// 세로가 긴 맵(26×21 등)도 지도와 아래 버튼이 한 화면에 들어오게 폭을 줄인다 (넓은 화면에서만)
+function fitBoard() {
+  const wrap = $('wrap');
+  if (window.innerWidth < 900) { wrap.style.maxWidth = ''; wrap.style.marginInline = ''; return; }
+  const top = wrap.getBoundingClientRect().top + window.scrollY;
+  const avail = window.innerHeight - top - 76;
+  const w = Math.max(420, Math.floor(avail * COLS / ROWS));
+  wrap.style.maxWidth = `${w}px`;
+  wrap.style.marginInline = 'auto';
+}
+
 function renderAll() {
   if (!game) return;
+  fitBoard();
   renderHud();
   renderTray();
   renderInfo();
