@@ -51,13 +51,8 @@
           <button class="btn small" type="button" id="typeDirect" role="radio">다이렉트맵<br><small>깃발 없음</small></button>
         </div>
         <div id="sizeRow" style="margin-top:8px" hidden>
-          <label for="sizeSel" class="meta" style="display:block;margin:0 0 4px">맵 크기 (다이렉트맵)</label>
-          <select id="sizeSel" class="btn small" style="width:100%">
-            <option value="22x15">22 × 15 (십자경로맵과 같음)</option>
-            <option value="20x14">20 × 14</option>
-            <option value="18x12">18 × 12 (추천)</option>
-            <option value="16x11">16 × 11</option>
-          </select>
+          <label for="sizeSel" class="meta" style="display:block;margin:0 0 4px" id="sizeLabel">맵 크기 (가로 × 세로)</label>
+          <select id="sizeSel" class="btn small" style="width:100%"></select>
         </div>
       </section>
       <section class="panel">
@@ -99,10 +94,19 @@ const $ = (id) => document.getElementById(id);
 const KEY = 'dmm-editor-draft-v2';
 const NAMES = { cross: '십자경로맵', direct: '다이렉트맵' };
 
-function defaults(type, cols = 22, rows = 15) {
+// 맵 종류별로 고를 수 있는 크기 (가로 × 세로)
+const SIZES = {
+  cross: [['26x21', '26 × 21 (새 기준 크기)'], ['22x15', '22 × 15 (예전 크기)']],
+  direct: [['22x15', '22 × 15'], ['20x14', '20 × 14'], ['18x12', '18 × 12 (지금 기준)'], ['16x11', '16 × 11']],
+};
+function defaults(type, cols, rows) {
+  if (!cols) [cols, rows] = SIZES[type][type === 'direct' ? 2 : 0][0].split('x').map(Number);
   setGridSize(cols, rows);
-  if (type === 'direct') return { type, cols, rows, grid: new Array(N).fill(T.GRASS), spawn: { x: 0, y: 0 }, goal: { x: cols - 1, y: rows - 1 }, flags: [] };
-  return { type: 'cross', cols: 22, rows: 15, grid: new Array(22 * 15).fill(T.GRASS), spawn: { x: 0, y: 7 }, goal: { x: 21, y: 7 }, flags: [{ x: 4, y: 2 }, { x: 8, y: 12 }, { x: 13, y: 2 }, { x: 17, y: 12 }] };
+  const grid = new Array(N).fill(T.GRASS);
+  if (type === 'direct') return { type, cols, rows, grid, spawn: { x: 0, y: 0 }, goal: { x: cols - 1, y: rows - 1 }, flags: [] };
+  const mid = Math.floor(rows / 2), fx = (r) => Math.round((cols - 1) * r), fy = (r) => Math.round((rows - 1) * r);
+  return { type: 'cross', cols, rows, grid, spawn: { x: 0, y: mid }, goal: { x: cols - 1, y: mid },
+    flags: [{ x: fx(0.2), y: fy(0.15) }, { x: fx(0.38), y: fy(0.85) }, { x: fx(0.6), y: fy(0.15) }, { x: fx(0.8), y: fy(0.85) }] };
 }
 let drafts = (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } })();
 let st = drafts.current === 'direct' && drafts.direct ? drafts.direct : drafts.cross || defaults('cross');
@@ -133,8 +137,13 @@ function rebuild() {
   $('mapTitle').textContent = `${NAMES[st.type]} (${st.cols} × ${st.rows}칸)`;
   $('typeCross').classList.toggle('primary', st.type === 'cross'); $('typeCross').setAttribute('aria-checked', String(st.type === 'cross'));
   $('typeDirect').classList.toggle('primary', st.type === 'direct'); $('typeDirect').setAttribute('aria-checked', String(st.type === 'direct'));
-  $('sizeRow').hidden = st.type !== 'direct';
-  $('sizeSel').value = `${st.cols}x${st.rows}`;
+  $('sizeRow').hidden = false;
+  const opts = SIZES[st.type].slice();
+  const cur = `${st.cols}x${st.rows}`;
+  if (!opts.some(([v]) => v === cur)) opts.push([cur, `${st.cols} × ${st.rows}`]);
+  $('sizeSel').replaceChildren(...opts.map(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; return o; }));
+  $('sizeSel').value = cur;
+  $('sizeLabel').textContent = `${NAMES[st.type]} 크기 (가로 × 세로)`;
   renderTools();
   renderChecks();
   save();
@@ -229,7 +238,7 @@ cv.addEventListener('pointerup', stop); cv.addEventListener('pointercancel', sto
 function switchType(type) {
   if (st.type === type) return;
   save();
-  st = drafts[type] || defaults(type, 18, 12);
+  st = drafts[type] || defaults(type);
   tool = 'spawn'; mapId++;
   rebuild();
   toast(`${NAMES[type]}으로 바꿨어요`);
@@ -238,7 +247,7 @@ $('typeCross').addEventListener('click', () => switchType('cross'));
 $('typeDirect').addEventListener('click', () => switchType('direct'));
 $('sizeSel').addEventListener('change', (e) => {
   const [c, r] = e.target.value.split('x').map(Number);
-  st = defaults('direct', c, r); tool = 'spawn'; mapId++; rebuild();
+  st = defaults(st.type, c, r); tool = 'spawn'; mapId++; rebuild();
   toast(`맵 크기를 ${c} × ${r}로 바꿨어요. 지점과 지형은 처음 상태로 돌아가요`);
 });
 
@@ -275,7 +284,7 @@ let resetArmed = false;
 $('btnReset').addEventListener('click', (e) => {
   if (!resetArmed) { resetArmed = true; e.target.textContent = '한 번 더 누르면 처음으로 돌아가요'; setTimeout(() => { resetArmed = false; e.target.textContent = '처음부터 다시'; }, 3000); return; }
   resetArmed = false; e.target.textContent = '처음부터 다시';
-  st = defaults(st.type, st.type === 'direct' ? st.cols : 22, st.type === 'direct' ? st.rows : 15); tool = 'spawn'; mapId++; rebuild(); toast('처음 상태로 돌렸어요');
+  st = defaults(st.type, st.cols, st.rows); tool = 'spawn'; mapId++; rebuild(); toast('처음 상태로 돌렸어요');
 });
 $('btnClearTerrain').addEventListener('click', () => { st.grid = new Array(st.cols * st.rows).fill(T.GRASS); terrainChanged(); toast('지형을 모두 지웠어요'); });
 
