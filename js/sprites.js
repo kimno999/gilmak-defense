@@ -1,6 +1,7 @@
 // 도트 스프라이트. 문자 하나가 픽셀 하나. 외곽선은 자동으로 그린다.
 // 드래곤 역할: b 몸, d 그림자, l 배, w 날개, x 날개 그림자, h 뿔·발톱, e 눈
 import { DRAGONS, COMBO_BY_ID, ELEMENTS } from './data.js';
+import * as HD from './hd-art.js';
 
 const OUTLINE = '#160f1c';
 
@@ -238,12 +239,12 @@ function cached(key, fn) {
   return cache.get(key);
 }
 
-export function dragonSprite(type, grade) {
+export function legacyDragonSprite(type, grade) {
   return cached(`d:${type}:${grade}`, () => renderArt(DRAGON_ART[grade], { ...DRAGONS[type].pal, e: '#fff6c4' }));
 }
 
 // 조합 드래곤: 재료 색을 섞고, 가슴에 보석, 업그레이드하면 왕관과 빛
-export function comboSprite(id, up) {
+export function legacyComboSprite(id, up) {
   return cached(`c:${id}:${up}`, () => {
     const c = COMBO_BY_ID[id];
     if (id === 'sealedRed') {
@@ -301,11 +302,15 @@ function chains(x) {
   x.fillRect(6, 9, 2, 3);
 }
 
-export function towerSprite(t) {
-  return t.kind === 'combo' ? comboSprite(t.type, t.up) : dragonSprite(t.type, t.grade);
+// ---------- 고급 도트 (32px, 프레임 0~3) ----------
+export function dragonSprite(type, grade, f = 0) { return cached(`hd:d:${type}:${grade}:${f % 4}`, () => HD.dragon(type, grade, f)); }
+export function comboSprite(id, up = 0, f = 0) { return cached(`hd:c:${id}:${up}:${f % 4}`, () => HD.comboArt(COMBO_BY_ID[id], up, f)); }
+export function towerSprite(t, f = 0) {
+  return t.kind === 'combo' ? comboSprite(t.type, t.up, f) : dragonSprite(t.type, t.grade, f);
 }
 
-export function monsterSprite(kind, race) {
+export function monsterSprite(kind, race, f = 0) { return HD.monster(kind, race, f); }
+export function legacyMonsterSprite(kind, race) {
   return cached(`m:${kind}:${race}`, () => {
     const art = MONSTER_ART[kind].map((r) => r.padEnd(16, '.').slice(0, 16));
     const extra = (RACE_EXTRA[race] || {})[kind] || [];
@@ -324,18 +329,18 @@ const DIGITS = {
   9: ['111', '101', '111', '001', '111'], '+': ['000', '010', '111', '010', '000'], '-': ['000', '000', '111', '000', '000'],
   '!': ['010', '010', '010', '000', '010'],
 };
-export function drawText(g, text, x, y, color, shadow = '#160f1c') {
+export function drawText(g, text, x, y, color, shadow = '#160f1c', k = 1) {
   const s = String(text);
-  const w = s.length * 4 - 1;
+  const w = (s.length * 4 - 1) * k;
   let px = Math.round(x - w / 2);
   const py = Math.round(y);
   for (const ch of s) {
     const d = DIGITS[ch];
     if (d) for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if (d[r][c] === '1') {
-      if (shadow) { g.fillStyle = shadow; g.fillRect(px + c + 1, py + r + 1, 1, 1); }
-      g.fillStyle = color; g.fillRect(px + c, py + r, 1, 1);
+      if (shadow) { g.fillStyle = shadow; g.fillRect(px + (c + 1) * k, py + (r + 1) * k, k, k); }
+      g.fillStyle = color; g.fillRect(px + c * k, py + r * k, k, k);
     }
-    px += 4;
+    px += 4 * k;
   }
 }
 
@@ -400,7 +405,8 @@ export function drawTerrainTile(g, type, x, y, seed, grid, cols, rows) {
   }
 }
 
-export function stoneSprite() {
+export function stoneSprite(v = 0) { return cached(`hd:stone:${v}`, () => HD.stoneBlock(v)); }
+export function legacyStoneSprite() {
   return cached('stone', () => {
     const c = makeCanvas(16, 16);
     const g = c.getContext('2d');
@@ -415,7 +421,8 @@ export function stoneSprite() {
   });
 }
 
-export function flagSprite(n) {
+export function flagSprite(n, f = 0) { return cached(`hd:flag:${n}:${f % 4}`, () => HD.flag(n, f)); }
+export function legacyFlagSprite(n) {
   return cached(`flag:${n}`, () => {
     const c = makeCanvas(16, 16);
     const g = c.getContext('2d');
@@ -430,7 +437,8 @@ export function flagSprite(n) {
   });
 }
 
-export function portalSprite() {
+export function portalSprite(f = 0) { return cached(`hd:portal:${f % 8}`, () => HD.portal(f)); }
+export function legacyPortalSprite() {
   return cached('portal', () => {
     const c = makeCanvas(16, 16);
     const g = c.getContext('2d');
@@ -442,7 +450,8 @@ export function portalSprite() {
   });
 }
 
-export function gateSprite() {
+export function gateSprite(f = 0) { return cached(`hd:gate:${f % 4}`, () => HD.gate(f)); }
+export function legacyGateSprite() {
   return cached('gate', () => {
     const art = ['................', '..a.a.a..a.a.a..', '..aaaaa..aaaaa..', '..abbba..abbba..', '..abbbaaaabbba..',
       '..abbbbbbbbbba..', '..abbbddddbbba..', '..abbdddddbbba..', '..abbdd..ddbba..', '..abbd....dbba..',
@@ -452,11 +461,11 @@ export function gateSprite() {
 }
 
 // 작은 아이콘 캔버스 (UI용): 스프라이트를 배율로 키워 반환
-export function iconCanvas(sprite, scale = 3) {
-  const c = makeCanvas(16 * scale, 16 * scale);
+export function iconCanvas(sprite) {
+  const c = makeCanvas(sprite.width, sprite.height);
   const g = c.getContext('2d');
   g.imageSmoothingEnabled = false;
-  g.drawImage(sprite, 0, 0, 16 * scale, 16 * scale);
+  g.drawImage(sprite, 0, 0);
   c.className = 'px';
   return c;
 }

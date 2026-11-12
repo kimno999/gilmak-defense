@@ -3,7 +3,7 @@
 export const COLS = 22;
 export const ROWS = 15;
 export const N = COLS * ROWS;
-export const TILE = 16;
+export const TILE = 32;
 export const ROUNDS_PER_STAGE = 30;
 export const CHECKPOINTS = 4;
 export const START_LIVES = 20;

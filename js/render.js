@@ -1,33 +1,47 @@
-// 전장 그리기. 내부 해상도 384x256 (칸당 16px), CSS로 키워 도트 느낌을 살린다.
+// 전장 그리기 (고급 도트). 장면은 칸당 32px 저해상도 캔버스에 도트로 그리고,
+// 화면 캔버스에 2배로 키운 뒤 빛 효과(광원, 빛 번짐, 빛줄기, 위아래 흐림, 가장자리 어둡게)를 더한다.
 import { COLS, ROWS, TILE, ELEMENTS } from './data.js';
-import { OCC, idx, cx, cy } from './map.js';
-import {
-  drawTerrainTile, towerSprite, monsterSprite, stoneSprite, flagSprite, portalSprite, gateSprite, drawText,
-} from './sprites.js';
+import { OCC, cx, cy } from './map.js';
+import { drawWorld, waterSparkles } from './hd-art.js';
+import { towerSprite, monsterSprite, stoneSprite, flagSprite, portalSprite, gateSprite, drawText } from './sprites.js';
 
-const W = COLS * TILE, H = ROWS * TILE;
+const W = COLS * TILE, H = ROWS * TILE, S = 2;
+const AMBIENT = {
+  meadow: ['#fff2d6', '#c9c0d8', '#6e78b8'],
+  canyon: ['#ffe8c0', '#d8b898', '#8a6a78'],
+  lake: ['#eef8ff', '#b8c8e0', '#5a70b0'],
+  swamp: ['#e0f0d0', '#98b0a0', '#3a5a6a'],
+  highland: ['#fff8e0', '#d0d0c8', '#7888b0'],
+  mixed: ['#fff2d6', '#c9c0d8', '#6e78b8'],
+};
 
 export class Renderer {
   constructor(canvas) {
     this.cv = canvas;
-    canvas.width = W; canvas.height = H;
+    canvas.width = W * S; canvas.height = H * S;
     canvas.style.aspectRatio = `${COLS} / ${ROWS}`;
-    this.g = canvas.getContext('2d');
+    this.dg = canvas.getContext('2d');
+    this.low = document.createElement('canvas'); this.low.width = W; this.low.height = H;
+    this.g = this.low.getContext('2d');
     this.g.imageSmoothingEnabled = false;
-    this.terrain = null;
-    this.terrainId = null;
+    this.small = document.createElement('canvas'); this.small.width = W / 2; this.small.height = H / 2;
+    this.sg = this.small.getContext('2d');
+    this.tmp = document.createElement('canvas'); this.tmp.width = W * S; this.tmp.height = H * S;
+    this.tg = this.tmp.getContext('2d');
+    this.terrain = null; this.terrainId = null;
     this.reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.light = true;
+    const c = document.createElement('canvas').getContext('2d');
+    c.filter = 'blur(2px)';
+    this.filterOK = c.filter === 'blur(2px)';
+    this.motes = Array.from({ length: 36 }, () => ({ x: Math.random() * W, y: Math.random() * H, s: 0.15 + Math.random() * 0.3, p: Math.random() * 6 }));
+    this.lastT = 0;
   }
 
   buildTerrain(map) {
     const c = document.createElement('canvas');
     c.width = W; c.height = H;
-    const g = c.getContext('2d');
-    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) drawTerrainTile(g, map.grid[idx(x, y)], x, y, map.id & 0xffff, map.grid, COLS, ROWS);
-    // 격자 아주 옅게
-    g.fillStyle = 'rgba(0,0,0,0.12)';
-    for (let x = 1; x < COLS; x++) g.fillRect(x * TILE, 0, 1, H);
-    for (let y = 1; y < ROWS; y++) g.fillRect(0, y * TILE, W, 1);
+    drawWorld(c.getContext('2d'), map.grid, COLS, ROWS, map.id & 0xffff, map.biomeKey || 'meadow');
     this.terrain = c;
     this.terrainId = map.id;
   }
@@ -35,7 +49,7 @@ export class Renderer {
   pixCircle(x, y, r, color, dotted) {
     const g = this.g;
     g.fillStyle = color;
-    const steps = Math.max(24, Math.floor(r * 6.3));
+    const steps = Math.max(32, Math.floor(r * 6.3));
     for (let i = 0; i < steps; i++) {
       if (dotted && i % 2) continue;
       const a = (i / steps) * Math.PI * 2;
@@ -43,197 +57,263 @@ export class Renderer {
     }
   }
 
+  shadow(x, y, w) {
+    const g = this.g;
+    g.fillStyle = 'rgba(10,8,24,0.38)';
+    g.beginPath(); g.ellipse(Math.round(x), Math.round(y), w, w * 0.32, 0, 0, Math.PI * 2); g.fill();
+  }
+
+  box(x, y, color, w = 32) {
+    const g = this.g;
+    g.fillStyle = color;
+    g.fillRect(x, y, w, 1); g.fillRect(x, y + w - 1, w, 1); g.fillRect(x, y, 1, w); g.fillRect(x + w - 1, y, 1, w);
+  }
+
   draw(game, view, now) {
     const g = this.g;
-    const anim = this.reduced ? 0 : now / 1000;
+    const t = this.reduced ? 0 : now / 1000;
+    const dt = Math.min(0.1, Math.max(0, t - this.lastT)); this.lastT = t;
+    const fr = (speed, off = 0) => (this.reduced ? 0 : Math.floor(t * speed + off) % 4);
     if (this.terrainId !== game.map.id) this.buildTerrain(game.map);
-    g.drawImage(this.terrain, 0, 0);
     const m = game.map;
+    const lights = [];
+    g.drawImage(this.terrain, 0, 0);
+    if (!this.reduced) waterSparkles(g, m.grid, COLS, ROWS, t);
 
-    // 물결
-    if (!this.reduced) {
-      g.fillStyle = 'rgba(200,235,255,0.45)';
-      for (let i = 0; i < m.grid.length; i++) {
-        if (m.grid[i] !== 2) continue;
-        const ox = Math.floor((anim * 4 + cx(i) * 5 + cy(i) * 3) % 12);
-        g.fillRect(cx(i) * TILE + 2 + ox, cy(i) * TILE + 6, 3, 1);
-        g.fillRect(cx(i) * TILE + ((ox + 6) % 12) + 1, cy(i) * TILE + 11, 2, 1);
-      }
-    }
-
-    // 출발·도착·깃발
-    g.drawImage(portalSprite(), m.spawn.x * TILE, m.spawn.y * TILE);
-    g.drawImage(gateSprite(), m.goal.x * TILE, m.goal.y * TILE);
-    m.flags.forEach((f, i) => g.drawImage(flagSprite(i + 1), f.x * TILE, f.y * TILE));
-
-    // 경로 (움직이는 점선)
+    // 경로: 출발 → 도착 방향으로 흐르는 점선과 작은 화살표
     const path = game.path;
     if (path && path.length > 1) {
-      const off = Math.floor(anim * 8) % 6;
-      let step = 0;
+      const off = Math.floor(t * 16) % 10;
+      let d = 0;
+      g.fillStyle = game.block ? 'rgba(255,107,107,0.85)' : 'rgba(255,214,110,0.85)';
       for (let k = 0; k < path.length - 1; k++) {
         const a = path[k], b = path[k + 1];
-        const ax = cx(a) * TILE + 8, ay = cy(a) * TILE + 8, bx = cx(b) * TILE + 8, by = cy(b) * TILE + 8;
+        const ax = cx(a) * TILE + 16, ay = cy(a) * TILE + 16, bx = cx(b) * TILE + 16, by = cy(b) * TILE + 16;
         const len = Math.max(Math.abs(bx - ax), Math.abs(by - ay));
-        for (let s = 0; s < len; s++, step++) {
-          if ((step - off + 6000) % 6 < 2) { // 출발 → 도착 방향으로 흐른다
-            const px = ax + Math.sign(bx - ax) * s, py = ay + Math.sign(by - ay) * s;
-            g.fillStyle = game.block ? '#ff6b6b' : '#ffcf4a';
-            g.fillRect(px, py, 1, 1);
+        const sx = Math.sign(bx - ax), sy = Math.sign(by - ay);
+        for (let s = 0; s < len; s++, d++) {
+          if ((d - off + 10000) % 10 < 3) g.fillRect(ax + sx * s, ay + sy * s, 2, 2);
+        }
+        if (k % 3 === 1) {
+          const mx = (ax + bx) / 2, my = (ay + by) / 2;
+          for (let i = 0; i < 4; i++) {
+            g.fillRect(Math.round(mx + sx * (2 - i) - sy * i), Math.round(my + sy * (2 - i) - sx * i), 1, 1);
+            g.fillRect(Math.round(mx + sx * (2 - i) + sy * i), Math.round(my + sy * (2 - i) + sx * i), 1, 1);
           }
         }
       }
     }
 
-    // 돌
-    const stone = stoneSprite();
-    for (let i = 0; i < game.occ.length; i++) if (game.occ[i] === OCC.STONE) g.drawImage(stone, cx(i) * TILE, cy(i) * TILE);
-    // 부서질 칸 표시
+    // 정렬해서 그릴 것들 (아래쪽이 앞)
+    const items = [];
+    const sp = m.spawn, go = m.goal;
+    items.push({ y: sp.y * TILE + 30, draw: () => g.drawImage(portalSprite(this.reduced ? 0 : Math.floor(t * 8) % 8), sp.x * TILE, sp.y * TILE) });
+    lights.push([sp.x * TILE + 16, sp.y * TILE + 18, 'rgba(190,110,255,0.8)', 30]);
+    items.push({ y: go.y * TILE + 30, draw: () => g.drawImage(gateSprite(fr(6)), go.x * TILE, go.y * TILE) });
+    lights.push([go.x * TILE + 6, go.y * TILE + 12, 'rgba(255,150,50,0.75)', 20], [go.x * TILE + 26, go.y * TILE + 12, 'rgba(255,150,50,0.75)', 20]);
+    m.flags.forEach((f, i) => items.push({ y: f.y * TILE + 29, draw: () => { this.shadow(f.x * TILE + 9, f.y * TILE + 29, 4); g.drawImage(flagSprite(i + 1, fr(6, i)), f.x * TILE, f.y * TILE); } }));
+
+    for (let i = 0; i < game.occ.length; i++) {
+      if (game.occ[i] !== OCC.STONE) continue;
+      const x = cx(i) * TILE, y = cy(i) * TILE;
+      items.push({ y: y + 30, draw: () => g.drawImage(stoneSprite((cx(i) + cy(i)) % 2), x, y) });
+    }
+
+    // 오라 범위
+    for (const tw of game.towers) {
+      if (tw.pending || !tw.st) continue;
+      const s = tw.st;
+      const r = (s.buffR || s.auraR || 0) * TILE;
+      if (!r) continue;
+      const col = s.pixieBuff ? 'rgba(255,138,216,0.6)' : s.buffSpd ? 'rgba(255,224,102,0.7)' : s.auraDmg ? 'rgba(255,138,61,0.7)' : 'rgba(123,224,74,0.6)';
+      this.pixCircle(tw.x * TILE + 16, tw.y * TILE + 16, r, col, true);
+      if (s.auraDmg) lights.push([tw.x * TILE + 16, tw.y * TILE + 16, 'rgba(255,120,40,0.35)', r]);
+    }
+    // 산성 늪
+    for (const p of game.pools) {
+      const a = Math.min(1, p.t / p.max), r = p.r * TILE;
+      g.fillStyle = `rgba(123,224,74,${0.28 * a})`;
+      for (let yy = -r; yy <= r; yy += 2) for (let xx = -r; xx <= r; xx += 2) if (xx * xx + yy * yy <= r * r && ((xx + yy) / 2) % 2 === 0) g.fillRect(Math.round(p.x * TILE + xx), Math.round(p.y * TILE + yy), 2, 2);
+      lights.push([p.x * TILE, p.y * TILE, `rgba(140,255,80,${0.3 * a})`, r]);
+    }
+
+    const hl = new Set(view.highlight || []);
+    for (const tw of game.towers) {
+      const x = tw.x * TILE, y = tw.y * TILE;
+      const sprite = towerSprite(tw, fr(5, tw.id));
+      items.push({ y: y + 29, draw: () => {
+        this.shadow(x + 16, y + 29, tw.kind === 'combo' || tw.grade >= 3 ? 11 : 8);
+        g.drawImage(sprite, x, y);
+        if (tw.flash > 0) { g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.5; g.drawImage(sprite, x, y); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; }
+      } });
+      for (const [lx, ly, col, r] of sprite.glow || []) lights.push([x + lx, y + ly, col, r * 3.2 * (0.9 + 0.1 * Math.sin(t * 6 + tw.id))]);
+    }
+
+    // 몬스터
+    for (const e of game.enemies) {
+      const big = e.boss;
+      const sp2 = monsterSprite(e.kind, e.race, fr(8, e.id));
+      const sz = sp2.width;
+      const lift = e.fly ? 10 + Math.sin(t * 4 + e.id) * 2 : 0;
+      const px = Math.round(e.x * TILE - sz / 2), py = Math.round(e.y * TILE - sz + 10 - lift);
+      items.push({ y: e.y * TILE + 10 + (e.fly ? 40 : 0), draw: () => {
+        this.shadow(e.x * TILE, e.y * TILE + 9, big ? 10 : e.fly ? 5 : 6);
+        g.save();
+        if (e.face < 0) { g.translate(px + sz, py); g.scale(-1, 1); g.drawImage(sp2, 0, 0); }
+        else g.drawImage(sp2, px, py);
+        g.restore();
+        if (e.slow > 0) { g.fillStyle = '#8fd8ff'; for (let k = 4; k < sz - 4; k += 3) g.fillRect(px + k, py + sz - 3, 2, 1); }
+        if (e.poisonT > 0) { g.fillStyle = '#7be04a'; g.fillRect(px + 6 + (Math.floor(t * 6) % 6) * 2, py + 4, 2, 2); }
+        if (e.stunT > 0) for (let k = 0; k < 3; k++) { g.fillStyle = '#ffe066'; const a = t * 6 + k * 2.1; g.fillRect(Math.round(px + sz / 2 + Math.cos(a) * 6), Math.round(py + 2 + Math.sin(a) * 2), 2, 2); }
+        if (e.breaking >= 0) drawText(g, '!', px + sz / 2, py - 12, '#ff6b6b', '#160f1c', 2);
+        if (e.hp < e.max) {
+          const w = big ? 30 : 20, bx = Math.round(e.x * TILE - w / 2), by = py - 4;
+          g.fillStyle = '#160f1c'; g.fillRect(bx - 1, by - 1, w + 2, 4);
+          const pr = Math.max(0, e.hp / e.max);
+          g.fillStyle = pr > 0.5 ? '#7be04a' : pr > 0.25 ? '#ffcf4a' : '#ff6b6b';
+          g.fillRect(bx, by, Math.max(1, Math.round(w * pr)), 2);
+        }
+      } });
+      for (const [lx, ly, col, r] of sp2.glow || []) lights.push([px + (e.face < 0 ? sz - lx : lx), py + ly, col, r * 2.5]);
+    }
+    items.sort((a, b) => a.y - b.y).forEach((it) => it.draw());
+
+    // 표시: 대기 중 후보, 원힛·콤바인 재료, 합성 대상
+    for (const tw of game.towers) {
+      const x = tw.x * TILE, y = tw.y * TILE;
+      if (tw.pending) {
+        g.fillStyle = (Math.floor(t * 4) % 2) ? '#ffcf4a' : '#ff8ad8';
+        for (let k = 0; k < 32; k += 4) { g.fillRect(x + k, y, 2, 1); g.fillRect(x + k + 2, y + 31, 2, 1); g.fillRect(x, y + k + 2, 1, 2); g.fillRect(x + 31, y + k, 1, 2); }
+      }
+      const al = (view.alertMats || []).find((a) => a.id === tw.id);
+      if (al) {
+        const hues = al.kind === 'onehit' ? ['#ff8ad8', '#ffcf4a', '#8fd8ff', '#7be04a'] : ['#7be04a', '#dfffcf'];
+        for (let k = 0; k < 32; k++) {
+          g.fillStyle = hues[(Math.floor(k / 2) + Math.floor(t * 10)) % hues.length];
+          g.fillRect(x + k, y - 1, 1, 2); g.fillRect(x + 31 - k, y + 31, 1, 2); g.fillRect(x - 1, y + 31 - k, 2, 1); g.fillRect(x + 31, y + k, 2, 1);
+        }
+        if (Math.floor(t * 5 + tw.id) % 3 === 0) { g.fillStyle = '#ffffff'; g.fillRect(x + 4 + (tw.id * 7) % 24, y + 3 + (tw.id * 5) % 20, 2, 2); }
+        lights.push([x + 16, y + 16, al.kind === 'onehit' ? 'rgba(255,220,140,0.55)' : 'rgba(150,255,120,0.45)', 26]);
+      }
+      if (hl.has(tw.id)) this.box(x, y, (Math.floor(t * 5) % 2) ? '#7be04a' : '#dfffcf');
+    }
+
+    // 부서질 칸
     if (game.breaks && game.phase !== 'wave') {
       for (const i of game.breaks) {
         const x = cx(i) * TILE, y = cy(i) * TILE;
-        g.fillStyle = (Math.floor(anim * 3) % 2) ? '#ff6b6b' : '#ffd2d2';
-        for (let k = 3; k < 13; k++) { g.fillRect(x + k, y + k, 1, 1); g.fillRect(x + 15 - k, y + k, 1, 1); }
+        g.fillStyle = (Math.floor(t * 3) % 2) ? '#ff6b6b' : '#ffd2d2';
+        for (let k = 6; k < 26; k++) { g.fillRect(x + k, y + k, 2, 2); g.fillRect(x + 30 - k, y + k, 2, 2); }
       }
     }
 
-    // 하이라이트 대상 (합성·콤바인 재료)
-    const hl = new Set(view.highlight || []);
-
-    // 오라 범위 (픽시, 이클립스, 봉인된 레드, 역병)
-    for (const t of game.towers) {
-      if (t.pending || !t.st) continue;
-      const s = t.st;
-      const r = (s.buffR || s.auraR || 0) * TILE;
-      if (!r) continue;
-      const col = s.pixieBuff ? 'rgba(255,138,216,0.55)' : s.buffSpd ? 'rgba(255,224,102,0.6)' : s.auraDmg ? 'rgba(255,138,61,0.6)' : 'rgba(123,224,74,0.5)';
-      this.pixCircle(t.x * TILE + 8, t.y * TILE + 8, r, col, true);
-    }
-
-    // 산성 늪
-    for (const p of game.pools) {
-      const a = Math.min(1, p.t / p.max);
-      g.fillStyle = `rgba(123,224,74,${0.25 * a})`;
-      const r = p.r * TILE;
-      for (let yy = -r; yy <= r; yy += 2) for (let xx = -r; xx <= r; xx += 2) {
-        if (xx * xx + yy * yy <= r * r && ((xx + yy) / 2) % 2 === 0) g.fillRect(Math.round(p.x * TILE + xx), Math.round(p.y * TILE + yy), 2, 2);
-      }
-    }
-
-    // 드래곤
-    for (const t of game.towers) {
-      const x = t.x * TILE, y = t.y * TILE;
-      const bob = !this.reduced && t.kind === 'dragon' && t.grade === 0 ? 0 : (!this.reduced && Math.floor(anim * 2 + t.id) % 2 ? -1 : 0);
-      if (t.pending) {
-        g.fillStyle = (Math.floor(anim * 4) % 2) ? '#ffcf4a' : '#ff8ad8';
-        for (let k = 0; k < 16; k += 2) { g.fillRect(x + k, y, 1, 1); g.fillRect(x + k + 1, y + 15, 1, 1); g.fillRect(x, y + k + 1, 1, 1); g.fillRect(x + 15, y + k, 1, 1); }
-      }
-      const al = (view.alertMats || []).find((a) => a.id === t.id);
-      if (al) {
-        const hues = al.kind === 'onehit' ? ['#ff8ad8', '#ffcf4a', '#8fd8ff', '#7be04a'] : ['#7be04a', '#dfffcf'];
-        for (let k = 0; k < 16; k++) {
-          g.fillStyle = hues[(k + Math.floor(anim * 10)) % hues.length];
-          g.fillRect(x + k, y - 1, 1, 1); g.fillRect(x + 15 - k, y + 16, 1, 1); g.fillRect(x - 1, y + 15 - k, 1, 1); g.fillRect(x + 16, y + k, 1, 1);
-        }
-      }
-      if (hl.has(t.id)) {
-        g.fillStyle = (Math.floor(anim * 5) % 2) ? '#7be04a' : '#dfffcf';
-        g.fillRect(x, y, 16, 1); g.fillRect(x, y + 15, 16, 1); g.fillRect(x, y, 1, 16); g.fillRect(x + 15, y, 1, 16);
-      }
-      // 그림자
-      g.fillStyle = 'rgba(0,0,0,0.3)';
-      g.fillRect(x + 4, y + 14, 9, 1);
-      g.save();
-      if (t.flash > 0) g.filter = 'brightness(1.6)';
-      g.drawImage(towerSprite(t), x, y + bob);
-      g.restore();
-    }
-
-    // 선택된 드래곤 사거리
+    // 선택과 사거리
     if (view.selTower) {
-      const t = view.selTower;
-      const s = game.effStats(t);
-      const x = t.x * TILE, y = t.y * TILE;
-      g.fillStyle = '#ffcf4a';
-      g.fillRect(x - 1, y - 1, 18, 1); g.fillRect(x - 1, y + 16, 18, 1); g.fillRect(x - 1, y - 1, 1, 18); g.fillRect(x + 16, y - 1, 1, 18);
-      if (s.range > 0) this.pixCircle(x + 8, y + 8, s.range * TILE, 'rgba(255,255,255,0.8)');
+      const tw = view.selTower, s = game.effStats(tw);
+      this.box(tw.x * TILE - 1, tw.y * TILE - 1, '#ffcf4a', 34);
+      if (s.range > 0) this.pixCircle(tw.x * TILE + 16, tw.y * TILE + 16, s.range * TILE, 'rgba(255,255,255,0.85)');
     }
-    if (view.selStone) {
-      const { x, y } = view.selStone;
-      g.fillStyle = '#ffcf4a';
-      g.fillRect(x * TILE - 1, y * TILE - 1, 18, 1); g.fillRect(x * TILE - 1, y * TILE + 16, 18, 1);
-      g.fillRect(x * TILE - 1, y * TILE - 1, 1, 18); g.fillRect(x * TILE + 16, y * TILE - 1, 1, 18);
-    }
-
-    // 배치 미리보기
+    if (view.selStone) this.box(view.selStone.x * TILE - 1, view.selStone.y * TILE - 1, '#ffcf4a', 34);
     if (view.ghost) {
       const { x, y, sprite, ok, block, range } = view.ghost;
       g.globalAlpha = ok ? 0.65 : 0.3;
       g.drawImage(sprite, x * TILE, y * TILE);
       g.globalAlpha = 1;
-      if (!ok) { g.fillStyle = 'rgba(255,107,107,0.35)'; g.fillRect(x * TILE, y * TILE, 16, 16); }
-      if (ok && range) this.pixCircle(x * TILE + 8, y * TILE + 8, range * TILE, 'rgba(255,255,255,0.55)', true);
-      if (ok && block) {
-        g.fillStyle = block === 2 ? '#ff4040' : '#ff9a6b';
-        g.fillRect(x * TILE + 6, y * TILE - 7, 4, 6);
-        drawText(g, '!', x * TILE + 8, y * TILE - 6, '#fff', null);
-      }
-    }
-
-    // 몬스터
-    const list = game.enemies.slice().sort((a, b) => (a.fly - b.fly) || (a.y - b.y));
-    for (const e of list) {
-      const sp = monsterSprite(e.kind, e.race);
-      const scale = e.boss ? 1.5 : 1;
-      const sz = 16 * scale;
-      const bob = this.reduced ? 0 : Math.floor(e.anim * 6) % 2;
-      const lift = e.fly ? 6 : 0;
-      const px = Math.round(e.x * TILE - sz / 2), py = Math.round(e.y * TILE - sz + 4 - lift - bob);
-      if (e.fly) { g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(Math.round(e.x * TILE) - 4, Math.round(e.y * TILE) + 3, 8, 2); }
-      g.save();
-      if (e.face < 0) { g.translate(px + sz, py); g.scale(-1, 1); g.drawImage(sp, 0, 0, sz, sz); }
-      else g.drawImage(sp, px, py, sz, sz);
-      g.restore();
-      // 상태 표시
-      if (e.slow > 0) { g.fillStyle = '#8fd8ff'; g.fillRect(px + 2, py + sz - 2, sz - 4, 1); }
-      if (e.poisonT > 0) { g.fillStyle = '#7be04a'; g.fillRect(px + 3 + (Math.floor(anim * 6) % 4), py + 2, 1, 1); }
-      if (e.stunT > 0) { g.fillStyle = '#ffe066'; g.fillRect(px + 4 + (Math.floor(anim * 8) % 8), py - 2, 1, 1); }
-      if (e.breaking >= 0) { g.fillStyle = '#ff6b6b'; drawText(g, '!', px + sz / 2, py - 7, '#ff6b6b'); }
-      // 체력
-      if (e.hp < e.max) {
-        const w = Math.round(sz - 4), bx = px + 2, by = py - 3;
-        g.fillStyle = '#160f1c'; g.fillRect(bx - 1, by - 1, w + 2, 3);
-        const p = Math.max(0, e.hp / e.max);
-        g.fillStyle = p > 0.5 ? '#7be04a' : p > 0.25 ? '#ffcf4a' : '#ff6b6b';
-        g.fillRect(bx, by, Math.max(1, Math.round(w * p)), 1);
-      }
+      if (!ok) { g.fillStyle = 'rgba(255,107,107,0.35)'; g.fillRect(x * TILE, y * TILE, 32, 32); }
+      if (ok && range) this.pixCircle(x * TILE + 16, y * TILE + 16, range * TILE, 'rgba(255,255,255,0.6)', true);
+      if (ok && block) drawText(g, '!', x * TILE + 16, y * TILE - 12, block === 2 ? '#ff4040' : '#ff9a6b', '#160f1c', 2);
     }
 
     // 투사체
     for (const p of game.projs) {
       const col = ELEMENTS[p.elem].color;
       const x = Math.round(p.x * TILE), y = Math.round(p.y * TILE);
-      g.fillStyle = '#160f1c'; g.fillRect(x - 1, y - 1, 3, 3);
-      g.fillStyle = col; g.fillRect(x, y, p.s.splash ? 2 : 1, p.s.splash ? 2 : 1);
-      if (p.crit) { g.fillStyle = '#fff'; g.fillRect(x, y, 1, 1); }
+      const big = !!p.s.splash;
+      g.fillStyle = '#160f1c'; g.fillRect(x - 2, y - 2, big ? 5 : 4, big ? 5 : 4);
+      g.fillStyle = col; g.fillRect(x - 1, y - 1, big ? 3 : 2, big ? 3 : 2);
+      g.fillStyle = '#ffffff'; g.fillRect(x, y, 1, 1);
+      lights.push([x, y, col, big ? 18 : 10]);
     }
-
     // 효과
     for (const f of game.fx) {
-      const k = f.t / f.life;
-      const x = f.x * TILE, y = f.y * TILE;
-      if (f.k === 'ring') this.pixCircle(x, y, Math.max(1, f.r * TILE * (0.3 + 0.7 * k)), ELEMENTS[f.elem].color, k > 0.5);
-      else if (f.k === 'hit') { g.fillStyle = ELEMENTS[f.elem].color; g.fillRect(Math.round(x - 1), Math.round(y - 1 - k * 3), 1, 1); g.fillRect(Math.round(x + 1), Math.round(y - k * 3), 1, 1); }
-      else if (f.k === 'gold') drawText(g, `+${f.v}`, x, y - 8 - k * 6, '#ffcf4a');
-      else if (f.k === 'crit') drawText(g, '!', x, y - 10 - k * 5, '#ffffff');
-      else if (f.k === 'pop') { g.fillStyle = '#ffffff'; const r = 2 + k * 5; for (let a = 0; a < 6; a++) g.fillRect(Math.round(x + Math.cos(a) * r), Math.round(y - 4 + Math.sin(a) * r), 1, 1); }
-      else if (f.k === 'burst') { this.pixCircle(x, y, 2 + k * (f.big ? 16 : 10), f.color); if (f.big) this.pixCircle(x, y, 1 + k * 8, '#ffffff', true); }
-      else if (f.k === 'break') { g.fillStyle = f.dragon ? '#ff6b6b' : '#8b94a3'; for (let a = 0; a < 8; a++) g.fillRect(Math.round(x + Math.cos(a) * (2 + k * 9)), Math.round(y + Math.sin(a) * (2 + k * 9) + k * 4), 2, 2); }
+      const k = f.t / f.life, x = f.x * TILE, y = f.y * TILE;
+      if (f.k === 'ring') { this.pixCircle(x, y, Math.max(1, f.r * TILE * (0.3 + 0.7 * k)), ELEMENTS[f.elem].color, k > 0.5); lights.push([x, y, ELEMENTS[f.elem].color, f.r * TILE * (1 - k)]); }
+      else if (f.k === 'hit') { g.fillStyle = ELEMENTS[f.elem].color; g.fillRect(Math.round(x - 2), Math.round(y - 2 - k * 6), 2, 2); g.fillRect(Math.round(x + 2), Math.round(y - k * 6), 2, 2); }
+      else if (f.k === 'gold') drawText(g, `+${f.v}`, x, y - 18 - k * 10, '#ffcf4a', '#160f1c', 2);
+      else if (f.k === 'crit') drawText(g, '!', x, y - 22 - k * 8, '#ffffff', '#160f1c', 2);
+      else if (f.k === 'pop') { g.fillStyle = '#ffffff'; const r = 3 + k * 10; for (let a = 0; a < 8; a++) g.fillRect(Math.round(x + Math.cos(a) * r), Math.round(y - 8 + Math.sin(a) * r), 2, 2); }
+      else if (f.k === 'burst') { this.pixCircle(x, y, 3 + k * (f.big ? 32 : 20), f.color); if (f.big) this.pixCircle(x, y, 2 + k * 16, '#ffffff', true); lights.push([x, y, 'rgba(255,230,140,0.8)', (f.big ? 50 : 30) * (1 - k)]); }
+      else if (f.k === 'break') { g.fillStyle = f.dragon ? '#ff6b6b' : '#8d95a0'; for (let a = 0; a < 10; a++) g.fillRect(Math.round(x + Math.cos(a) * (3 + k * 18)), Math.round(y + Math.sin(a) * (3 + k * 18) + k * 8), 3, 3); }
     }
 
-    if (view.paused) {
-      g.fillStyle = 'rgba(10,8,18,0.55)'; g.fillRect(0, 0, W, H);
+    this.post(game, lights, t, dt, view);
+  }
+
+  post(game, lights, t, dt, view) {
+    const dg = this.dg, DW = W * S, DH = H * S;
+    dg.imageSmoothingEnabled = false;
+    dg.globalCompositeOperation = 'source-over';
+    dg.drawImage(this.low, 0, 0, DW, DH);
+    if (this.light) {
+      const amb = AMBIENT[game.map.biomeKey] || AMBIENT.meadow;
+      const grade = dg.createLinearGradient(0, 0, DW, DH);
+      grade.addColorStop(0, amb[0]); grade.addColorStop(0.55, amb[1]); grade.addColorStop(1, amb[2]);
+      dg.globalCompositeOperation = 'multiply';
+      dg.fillStyle = grade; dg.fillRect(0, 0, DW, DH);
+      dg.globalCompositeOperation = 'screen';
+      for (let k = 0; k < 4; k++) {
+        const x0 = 100 + k * 340 + Math.sin(t * 0.3 + k) * 30;
+        const grd = dg.createLinearGradient(x0, 0, x0 + 400, DH);
+        grd.addColorStop(0, 'rgba(255,236,190,0.13)'); grd.addColorStop(1, 'rgba(255,236,190,0)');
+        dg.fillStyle = grd;
+        dg.beginPath(); dg.moveTo(x0, 0); dg.lineTo(x0 + 110, 0); dg.lineTo(x0 + 560, DH); dg.lineTo(x0 + 390, DH); dg.closePath(); dg.fill();
+      }
+      dg.globalCompositeOperation = 'lighter';
+      for (const [x, y, col, r] of lights) {
+        if (!(r > 0)) continue;
+        const R = r * S;
+        const grd = dg.createRadialGradient(x * S, y * S, 0, x * S, y * S, R);
+        grd.addColorStop(0, col); grd.addColorStop(1, 'rgba(0,0,0,0)');
+        dg.fillStyle = grd; dg.fillRect(x * S - R, y * S - R, R * 2, R * 2);
+      }
+      for (const m of this.motes) {
+        m.y -= m.s * 8 * dt; m.x += Math.sin(t + m.p) * 3 * dt;
+        if (m.y < -2) { m.y = H + 2; m.x = Math.random() * W; }
+        dg.fillStyle = `rgba(255,240,200,${0.22 + 0.22 * Math.sin(t * 2 + m.p)})`;
+        dg.fillRect(Math.round(m.x) * S, Math.round(m.y) * S, S, S);
+      }
+      if (this.filterOK) {
+        const sg = this.sg;
+        sg.clearRect(0, 0, W / 2, H / 2);
+        sg.filter = 'brightness(0.7) contrast(2.2) blur(2px)';
+        sg.drawImage(this.cv, 0, 0, W / 2, H / 2);
+        sg.filter = 'none';
+        dg.globalCompositeOperation = 'screen';
+        dg.globalAlpha = 0.45;
+        dg.imageSmoothingEnabled = true;
+        dg.drawImage(this.small, 0, 0, DW, DH);
+        dg.globalAlpha = 1;
+        const tg = this.tg;
+        tg.globalCompositeOperation = 'source-over';
+        tg.clearRect(0, 0, DW, DH);
+        tg.filter = 'blur(2px)';
+        tg.drawImage(this.cv, 0, 0);
+        tg.filter = 'none';
+        tg.globalCompositeOperation = 'destination-in';
+        const mask = tg.createLinearGradient(0, 0, 0, DH);
+        mask.addColorStop(0, 'rgba(0,0,0,1)'); mask.addColorStop(0.12, 'rgba(0,0,0,0)');
+        mask.addColorStop(0.88, 'rgba(0,0,0,0)'); mask.addColorStop(1, 'rgba(0,0,0,1)');
+        tg.fillStyle = mask; tg.fillRect(0, 0, DW, DH);
+        dg.globalCompositeOperation = 'source-over';
+        dg.drawImage(this.tmp, 0, 0);
+        dg.imageSmoothingEnabled = false;
+      }
+      dg.globalCompositeOperation = 'source-over';
+      const v = dg.createRadialGradient(DW / 2, DH / 2, DH * 0.4, DW / 2, DH / 2, DW * 0.7);
+      v.addColorStop(0, 'rgba(8,6,20,0)'); v.addColorStop(1, 'rgba(8,6,20,0.55)');
+      dg.fillStyle = v; dg.fillRect(0, 0, DW, DH);
     }
+    if (view.paused) { dg.fillStyle = 'rgba(10,8,18,0.55)'; dg.fillRect(0, 0, DW, DH); }
   }
 
   cellAt(clientX, clientY) {

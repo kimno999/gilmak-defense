@@ -332,6 +332,11 @@ function confirmQuit(kind, m) {
 }
 let quitKind = null;
 $('btnMenu').addEventListener('click', showMenu);
+// 빛 효과 켜기/끄기 (느린 컴퓨터용)
+renderer.light = store.get('gilmak-light', true);
+const syncLight = () => { $('btnLight').textContent = renderer.light ? '빛 효과 켜짐' : '빛 효과 꺼짐'; $('btnLight').setAttribute('aria-pressed', String(renderer.light)); };
+$('btnLight').addEventListener('click', () => { renderer.light = !renderer.light; store.set('gilmak-light', renderer.light); syncLight(); });
+syncLight();
 
 function onStageClear() {
   openModal(`스테이지 ${game.stage} 클리어!`, [
