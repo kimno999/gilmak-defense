@@ -261,3 +261,21 @@ p.rec { margin: 0; padding: 4px 8px; border-left: 3px solid var(--ice); backgrou
 .coach.flash { animation: coachFlash .5s ease-out; }
 @keyframes coachFlash { from { background: #4a3a20; } to { background: #2a2140; } }
 @media (prefers-reduced-motion: reduce) { .coach.flash { animation: none; } }
+
+/* 지도 위 버튼 */
+.mapActs { position: absolute; z-index: 6; display: flex; flex-direction: column; gap: 4px; padding: 6px; margin: 0 6px; background: rgba(14, 11, 24, .88); border: 2px solid var(--line-hi); box-shadow: 3px 3px 0 #000; max-width: min(260px, 60%); }
+.mapActs .btn { width: 100%; text-align: left; white-space: normal; font-size: 12.5px; min-height: 34px; }
+/* 지도 아래 반투명 확률 한 줄 */
+.luckStrip { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 3px 6px 3px 10px; background: rgba(12, 10, 22, .55); font-size: 11.5px; color: #e8e2f5; font-variant-numeric: tabular-nums; pointer-events: none; white-space: nowrap; overflow: hidden; }
+.luckStrip .lsT { color: var(--accent); font-weight: 700; }
+.luckStrip .lsG { display: inline-flex; align-items: center; gap: 3px; }
+.luckStrip .lsG.zero { opacity: .45; }
+.luckStrip .lsG i { width: 8px; height: 8px; display: inline-block; }
+.luckStrip .lsB { margin-left: auto; pointer-events: auto; min-height: 26px; padding: 2px 10px; font-size: 11.5px; }
+@media (max-width: 760px) { .luckStrip .lsN { display: none; } .luckStrip { gap: 7px; } }
+/* 5단계 그림 줄 */
+.grades5 { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 4px 0; }
+.grades5 > span { display: flex; flex-direction: column; align-items: center; font-size: 11.5px; color: var(--mute); text-align: center; line-height: 1.3; min-width: 58px; }
+.grades5 canvas { width: 40px; height: 40px; }
+.legend5 canvas { width: 32px; height: 32px; display: block; margin: 0 auto; }
+.legend5 strong { color: var(--fg); font-size: 12px; }

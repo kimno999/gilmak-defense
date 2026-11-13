@@ -88,6 +88,8 @@ function showTitle() {
   const body = el('div', { class: 'title' },
     hero,
     el('p', { text: '라운드마다 드래곤 5마리를 놓고 1마리만 남기세요. 나머지는 돌이 되어 미로가 됩니다. 몬스터를 오래 돌아가게 만들어 섬멸하세요.' }),
+    el('div', { class: 'grades5' }, ...GRADES.map((g, i) => el('span', {}, icon(dragonSprite('red', i), 1), `${i + 1}단계`, el('br'), g.name))),
+    el('p', { class: 'meta', text: '드래곤은 5단계예요. 골드로 승급할수록 높은 단계가 나올 확률이 올라가요.' }),
     meta.best ? el('p', { text: `일반 모드 최고 기록 ${meta.best} · 보유 마일리지 ${meta.mileage}` }) : el('p', { text: `보유 마일리지 ${meta.mileage}` }),
   );
   // 처음 하는 사람에게는 튜토리얼 모드를 먼저 권한다
@@ -311,7 +313,8 @@ function renderCoach() {
   if (!st) return;
   $('coachStep').textContent = `튜토리얼 ${coach.i + 1} / ${STEPS.length}`;
   $('coachTitle').textContent = st.title;
-  setKids($('coachText'), ...st.text.map((t) => el('p', { text: t })));
+  setKids($('coachText'), ...st.text.map((t) => el('p', { text: t })),
+    st.grades ? el('div', { class: 'grades5' }, ...GRADES.map((g, i) => el('span', {}, icon(dragonSprite('red', i), 1), `${i + 1}단계`, el('br'), g.name))) : null);
   $('coachNext').hidden = !st.btn;
   $('coachNext').textContent = st.btn || '';
 }
@@ -708,7 +711,7 @@ function renderInfo() {
     const can = game.canBreakStone() && game.isStone(view.selStone.x, view.selStone.y);
     put(box, el('h4', {}, icon(stoneSprite(), 2.5), '돌'),
       el('p', { class: 'meta', text: '남기지 않은 드래곤이 변한 벽이에요. 깨면 그 칸이 비고 경로가 달라져요.' }),
-      el('div', { class: 'acts' }, el('button', { class: 'btn', type: 'button', disabled: !can || game.gold < STONE_REMOVE_COST, text: STONE_REMOVE_COST ? `돌 깨기 ${STONE_REMOVE_COST}골드` : '돌 깨기 (무료)', onclick: () => { if (game.removeStone(view.selStone.x, view.selStone.y)) view.selStone = null; } }),
+      el('div', { class: 'acts' }, actButton(stoneAction()),
         el('p', { class: 'meta', style: 'margin:0', text: can ? '배치·정비 시간에만 깰 수 있어요. 깬 자리에 새 드래곤을 놓을 수 있어요.' : '웨이브 중에는 돌을 깰 수 없어요.' })));
     return;
   }
@@ -725,45 +728,21 @@ function renderInfo() {
     const acts = el('div', { class: 'acts' });
     if (game.canRelocate(t)) {
       acts.append(el('p', { class: 'meta', style: 'margin:0;color:#8fd8ff', text: '이번 라운드 드래곤이라 옮길 수 있어요. 빈칸을 누르면 그 자리로 옮겨져요.' }));
-      acts.append(el('button', { class: 'btn small', type: 'button', text: '되돌리기 (목록으로)', onclick: () => {
-        const p = game.returnTower(t); view.selTower = null; if (p) view.selPiece = p.pid; dirty = true;
-      } }));
+      acts.append(actButton(towerActions(t).find((a) => a.id === 'return')));
     }
+    const list = towerActions(t);
+    const firstHl = list.find((a) => a.hl);
+    if (firstHl) setHighlight(firstHl.hl);
     if (ph === 'choose' && t.pending) {
       if (t.kind === 'dragon') acts.append(el('p', { class: 'meta', style: 'margin:0', text: `필드에 같은 드래곤(${towerName(t)}) ${game.fieldCount(t.type, t.grade)}마리${t.grade > 0 ? ` · 한 단계 아래(${GRADES[t.grade - 1].name}) ${game.fieldCount(t.type, t.grade - 1)}마리` : ''}` }));
       for (const r of game.recommendations().filter((r) => r.t === t || (r.kind === 'merge2' && game.merge2Partner(t) === r.t))) {
         acts.append(el('p', { class: 'rec', text: `추천: ${r.text}` }));
       }
-      for (const c of game.oneHits(t)) {
-        acts.append(el('button', { class: 'btn lucky', type: 'button', text: `원힛! ${c.name} 만들기`, onclick: () => { game.oneHit(t, c.id); view.selTower = null; } }));
-      }
-      const p2 = game.merge2Partner(t);
-      if (p2) {
-        acts.append(el('button', { class: 'btn good', type: 'button', text: `2마리 합성해서 남기기 → ${GRADES[t.grade + 1].name} ${DRAGONS[t.type].short}`, onclick: () => { game.merge2(t); view.selTower = null; } }));
-        setHighlight([p2]);
-      }
-      acts.append(el('button', { class: 'btn primary', type: 'button', text: '이 드래곤 남기기', onclick: () => { game.keep(t); view.selTower = null; } }));
-      if (game.canDowngrade(t)) {
-        acts.append(el('button', { class: 'btn', type: 'button', text: `한 단계 내려서 남기기 → ${GRADES[t.grade - 1].name} ${DRAGONS[t.type].short}`, onclick: () => { game.keep(t, true); view.selTower = null; } }));
-      }
+      for (const a of list) if (a.id !== 'return') acts.append(actButton(a));
       acts.append(el('p', { class: 'meta', text: '남기지 않은 나머지 4마리는 돌이 돼요. 한 단계 내려서 남기기는 낮은 등급 조합 재료가 필요할 때 쓰세요.' }));
     } else if (ph === 'prep' && !t.pending) {
-      const ps = game.merge3Partners(t);
-      if (ps) {
-        acts.append(el('button', { class: 'btn good', type: 'button', text: `3마리 합성 → ${GRADES[t.grade + 1].name} ${DRAGONS[t.type].short}`, onclick: () => game.merge3(t), onmouseenter: () => { setHighlight(ps); } }));
-        setHighlight(ps);
-      }
-      for (const c of game.combines(t)) {
-        const ms = game.combineMaterials(t, c.id);
-        acts.append(el('button', { class: 'btn lucky', type: 'button', text: `콤바인: ${c.name}`, onclick: () => game.combine(t, c.id), onmouseenter: () => setHighlight(ms) }));
-        if (!ps) setHighlight(ms);
-      }
-      const uc = game.upgradeCost(t);
-      if (uc != null) {
-        const c = COMBO_BY_ID[t.type];
-        acts.append(el('button', { class: 'btn', type: 'button', disabled: game.gold < uc, text: `업그레이드 → ${c.ups[t.up]} (${uc}골드)`, onclick: () => game.upgrade(t) }));
-      }
-      if (!acts.children.length) acts.append(el('p', { class: 'meta', text: t.kind === 'dragon' ? '같은 종류·등급 3마리를 모으거나, 조합 도감의 재료를 모으면 여기에 버튼이 생겨요.' : '더 업그레이드할 수 없어요.' }));
+      for (const a of list) acts.append(actButton(a));
+      if (!list.length) acts.append(el('p', { class: 'meta', text: t.kind === 'dragon' ? '같은 종류·등급 3마리를 모으거나, 조합 도감의 재료를 모으면 여기에 버튼이 생겨요.' : '더 업그레이드할 수 없어요.' }));
     } else if (ph === 'wave' || ph === 'tester') {
       acts.append(el('p', { class: 'meta', text: '웨이브 중에는 합성·콤바인을 할 수 없어요.' }));
     }
@@ -802,6 +781,85 @@ function renderInfo() {
   }
 }
 
+// 선택한 드래곤으로 지금 할 수 있는 행동 (오른쪽 패널과 지도 위 버튼이 함께 쓴다)
+function towerActions(t) {
+  const ph = game.phase, out = [];
+  if (!t) return out;
+  if (game.canRelocate(t)) {
+    out.push({ id: 'return', text: '되돌리기 (목록으로)', short: '되돌리기', cls: 'small', fn: () => {
+      const p = game.returnTower(t); view.selTower = null; if (p) view.selPiece = p.pid; dirty = true;
+    } });
+  }
+  if (ph === 'choose' && t.pending) {
+    for (const c of game.oneHits(t)) out.push({ id: 'onehit', text: `원힛! ${c.name} 만들기`, short: `원힛! ${c.name}`, cls: 'lucky', fn: () => { game.oneHit(t, c.id); view.selTower = null; } });
+    const p2 = game.merge2Partner(t);
+    if (p2) out.push({ id: 'merge2', text: `2마리 합성해서 남기기 → ${GRADES[t.grade + 1].name} ${DRAGONS[t.type].short}`, short: `2마리 합성해서 남기기 → ${GRADES[t.grade + 1].name}`, cls: 'good', hl: [p2], fn: () => { game.merge2(t); view.selTower = null; } });
+    out.push({ id: 'keep', text: '이 드래곤 남기기', short: '이 드래곤 남기기', cls: 'primary', fn: () => { game.keep(t); view.selTower = null; } });
+    if (game.canDowngrade(t)) out.push({ id: 'down', text: `한 단계 내려서 남기기 → ${GRADES[t.grade - 1].name} ${DRAGONS[t.type].short}`, short: `내려서 남기기 → ${GRADES[t.grade - 1].name}`, cls: '', fn: () => { game.keep(t, true); view.selTower = null; } });
+  } else if (ph === 'prep' && !t.pending) {
+    const ps = game.merge3Partners(t);
+    if (ps) out.push({ id: 'merge3', text: `3마리 합성 → ${GRADES[t.grade + 1].name} ${DRAGONS[t.type].short}`, short: `3마리 합성 → ${GRADES[t.grade + 1].name}`, cls: 'good', hl: ps, fn: () => game.merge3(t) });
+    for (const c of game.combines(t)) {
+      const ms = game.combineMaterials(t, c.id);
+      out.push({ id: 'combine', text: `콤바인: ${c.name}`, short: `콤바인: ${c.name}`, cls: 'lucky', hl: ms, fn: () => game.combine(t, c.id) });
+    }
+    const uc = game.upgradeCost(t);
+    if (uc != null) {
+      const c = COMBO_BY_ID[t.type];
+      out.push({ id: 'upgrade', text: `업그레이드 → ${c.ups[t.up]} (${uc}골드)`, short: `업그레이드 ${uc}골드`, cls: '', disabled: game.gold < uc, fn: () => game.upgrade(t) });
+    }
+  }
+  return out;
+}
+function stoneAction() {
+  const s = view.selStone;
+  const can = !!s && game.canBreakStone() && game.isStone(s.x, s.y);
+  return { id: 'stone', text: STONE_REMOVE_COST ? `돌 깨기 ${STONE_REMOVE_COST}골드` : '돌 깨기 (무료)', short: STONE_REMOVE_COST ? `돌 깨기 ${STONE_REMOVE_COST}골드` : '돌 깨기 (무료)', cls: '', disabled: !can || game.gold < STONE_REMOVE_COST,
+    fn: () => { if (game.removeStone(s.x, s.y)) view.selStone = null; dirty = true; } };
+}
+function actButton(a, short = false) {
+  return el('button', {
+    class: `btn ${a.cls || ''}${short ? ' small' : ''}`, type: 'button', disabled: !!a.disabled, text: short ? a.short : a.text,
+    onclick: (e) => { e.stopPropagation(); a.fn(); dirty = true; },
+    onmouseenter: a.hl ? () => { setHighlight(a.hl); } : null,
+  });
+}
+
+// 지도 위, 선택한 칸 옆에 뜨는 버튼 (오른쪽 패널까지 가지 않아도 되게)
+function renderMapActs() {
+  const box = $('mapActs');
+  const ph = game.phase;
+  let list = [], cx0 = 0, cy0 = 0;
+  if (view.selStone && game.canBreakStone()) { list = [stoneAction()]; cx0 = view.selStone.x; cy0 = view.selStone.y; }
+  else if (view.selTower && (ph === 'place' || ph === 'choose' || ph === 'prep')) {
+    const t = game.getTower(view.selTower.id);
+    if (t) { list = towerActions(t); cx0 = t.x; cy0 = t.y; }
+  }
+  if (!list.length) { box.hidden = true; box.replaceChildren(); return; }
+  setKids(box, ...list.map((a) => actButton(a, true)));
+  box.hidden = false;
+  const rightSide = cx0 < COLS * 0.6;
+  box.style.left = rightSide ? `${((cx0 + 1) / COLS) * 100}%` : '';
+  box.style.right = rightSide ? '' : `${((COLS - cx0) / COLS) * 100}%`;
+  if (cy0 < 2) { box.style.top = `${(cy0 / ROWS) * 100}%`; box.style.transform = 'none'; }
+  else if (cy0 > ROWS - 3) { box.style.top = `${((cy0 + 1) / ROWS) * 100}%`; box.style.transform = 'translateY(-100%)'; }
+  else { box.style.top = `${((cy0 + 0.5) / ROWS) * 100}%`; box.style.transform = 'translateY(-50%)'; }
+}
+
+// 지도 아래 반투명 한 줄: 지금 5단계 확률과 승급 버튼
+function renderLuckStrip() {
+  const box = $('luckStrip');
+  const row = LUCK_TABLE[game.luck];
+  const cost = game.luckCost();
+  setKids(box,
+    el('span', { class: 'lsT', text: `승급 ${game.luck}/${MAX_LUCK}` }),
+    ...GRADES.map((g, i) => el('span', { class: `lsG${row[i + 1] ? '' : ' zero'}` }, el('i', { style: `background:${gradeColors[i]}` }), el('span', { class: 'lsN', text: g.name }), ` ${row[i + 1]}%`)),
+    el('button', {
+      class: 'btn small lsB', type: 'button', disabled: cost == null || game.gold < cost || game.isFighting() || game.phase === 'over' || game.phase === 'tutdone',
+      text: cost == null ? '최대 승급' : `승급 ${cost}골드`, onclick: (e) => { e.stopPropagation(); game.buyLuck(); dirty = true; },
+    }));
+}
+
 function recList() {
   const recs = game.recommendations();
   if (!recs.length) return el('p', { class: 'meta', text: '이번에는 남기면 바로 조합이나 3마리 합성이 되는 드래곤이 없어요.' });
@@ -814,10 +872,12 @@ function renderLuck() {
   const box = $('luckPanel');
   const row = LUCK_TABLE[game.luck];
   const bar = el('div', { class: 'luckbar' }, ...[1, 2, 3, 4, 5].map((i) => el('span', { style: `width:${row[i]}%;background:${gradeColors[i - 1]}` })));
-  const legend = el('div', { class: 'legend5' }, ...GRADES.map((g, i) => el('div', {}, el('b', { class: `g${i}` }), `${g.name}`, el('br'), `${row[i + 1]}%`)));
+  const legend = el('div', { class: 'legend5' }, ...GRADES.map((g, i) => el('div', {}, icon(dragonSprite('red', i), 1), el("b", { class: `g${i}` }), g.name, el("br"), el("strong", { text: `${row[i + 1]}%` }))));
   const cost = game.luckCost();
   const next = cost != null ? LUCK_TABLE[game.luck + 1] : null;
-  setKids(box, el('h3', { text: `승급 ${game.luck} / ${MAX_LUCK}단계` }), bar, legend,
+  setKids(box, el('h3', { text: `드래곤 5단계 · 나올 확률 (승급 ${game.luck} / ${MAX_LUCK})` }),
+    el('p', { class: 'meta', style: 'margin:0 0 4px', text: '드래곤은 알 → 해츨링 → 어린 비룡 → 성체 드래곤 → 고위 드래곤, 5단계예요. 골드로 승급할수록 높은 단계가 나올 확률이 올라가요.' }),
+    bar, legend,
     el('button', {
       class: 'btn small block', type: 'button', style: 'margin-top:8px', disabled: cost == null || game.gold < cost || game.isFighting() || game.phase === 'over',
       text: cost == null ? '최대 승급' : `승급하기 ${cost}골드 → 다음: ${next.slice(1).map((v) => `${v}`).join('/')}%`, onclick: () => game.buyLuck(),
@@ -904,6 +964,8 @@ function renderAll() {
   renderLuck();
   renderWave();
   renderBubbles();
+  renderMapActs();
+  renderLuckStrip();
   maybeHint();
 }
 
