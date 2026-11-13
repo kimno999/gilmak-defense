@@ -943,7 +943,7 @@ function fitBoard() {
   const wrap = $('wrap');
   if (window.innerWidth < 900) { wrap.style.maxWidth = ''; wrap.style.marginInline = ''; return; }
   const top = wrap.getBoundingClientRect().top + window.scrollY;
-  const avail = window.innerHeight - top - 76;
+  const avail = window.innerHeight - top - 112; // 아래 확률 한 줄과 버튼 줄 자리
   const w = Math.max(420, Math.floor(avail * COLS / ROWS));
   wrap.style.maxWidth = `${w}px`;
   wrap.style.marginInline = 'auto';
