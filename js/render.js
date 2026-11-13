@@ -251,8 +251,11 @@ export class Renderer {
     }
     if (view.selStone) this.box(view.selStone.x * TILE - 1, view.selStone.y * TILE - 1, '#ffcf4a', 34);
     // 자리 바꾸기 중: 바꿀 수 있는 돌을 깜빡여 보여 준다
-    if (view.swapFrom != null && Math.floor(t * 3) % 2 === 0) {
-      for (let i = 0; i < game.occ.length; i++) if (game.occ[i] === OCC.STONE) this.box(cx(i) * TILE - 1, cy(i) * TILE - 1, '#8fd8ff', 34);
+    if (view.swapFrom != null) {
+      const from = game.getTower(view.swapFrom);
+      if (from) this.box(from.x * TILE - 1, from.y * TILE - 1, '#8fd8ff', 34);
+      if (view.swapTo) { if (Math.floor(t * 4) % 2 === 0) this.box(view.swapTo.x * TILE - 1, view.swapTo.y * TILE - 1, '#ffcf4a', 34); }
+      else if (Math.floor(t * 3) % 2 === 0) for (let i = 0; i < game.occ.length; i++) if (game.occ[i] === OCC.STONE) this.box(cx(i) * TILE - 1, cy(i) * TILE - 1, '#8fd8ff', 34);
     }
     if (view.ghost) {
       const { x, y, sprite, ok, block, range } = view.ghost;

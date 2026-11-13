@@ -31,7 +31,7 @@ let game = null;
 let running = false;
 let speed = 1;
 let paused = false;
-const view = { selPiece: null, selTower: null, selStone: null, hover: null, highlight: [], ghost: null, paused: false, swapFrom: null };
+const view = { selPiece: null, selTower: null, selStone: null, hover: null, highlight: [], ghost: null, paused: false, swapFrom: null, swapTo: null };
 let dirty = true;
 
 const gradeColors = ['#9d96b8', '#7be04a', '#4aa8ff', '#c07cff', '#ffcf4a'];
@@ -271,7 +271,7 @@ function startGame(opts = lastStart) {
   coach = null;
   if (game.mode === 'tutorial') { coach = { i: -1, ctx: {} }; coachGo(0); }
   view.selPiece = game.draw[0] ? game.draw[0].pid : null;
-  view.selTower = null; view.selStone = null; view.swapFrom = null;
+  view.selTower = null; view.selStone = null; view.swapFrom = null; view.swapTo = null;
   running = true; paused = false; speed = 1;
   game.on('toast', (m, k) => toast(m, k));
   game.on('change', () => { dirty = true; });
@@ -743,7 +743,7 @@ function renderInfo() {
     if (firstHl) setHighlight(firstHl.hl);
     if (ph === 'choose' && t.pending) {
       if (t.kind === 'dragon') acts.append(el('p', { class: 'meta', style: 'margin:0', text: `필드에 같은 드래곤(${towerName(t)}) ${game.fieldCount(t.type, t.grade)}마리${t.grade > 0 ? ` · 한 단계 아래(${GRADES[t.grade - 1].name}) ${game.fieldCount(t.type, t.grade - 1)}마리` : ''}` }));
-      for (const r of game.recommendations().filter((r) => r.t === t || (r.kind === 'merge2' && game.merge2Partner(t) === r.t))) {
+      for (const r of game.recommendations().filter((r) => r.kind === 'merge2' && r.t !== t && game.merge2Partner(t) === r.t)) {
         acts.append(el('p', { class: 'rec', text: `추천: ${r.text}` }));
       }
       for (const a of list) if (a.id !== 'return') acts.append(actButton(a));
@@ -810,9 +810,10 @@ function towerActions(t) {
     const cost = game.swapCost(t);
     const on = view.swapFrom === t.id;
     out.push({ id: 'swap', text: on ? '자리 바꾸기 취소' : `돌과 자리 바꾸기 (${cost}골드)`, short: on ? '자리 바꾸기 취소' : `돌과 자리 바꾸기 ${cost}골드`, cls: on ? 'primary' : '', disabled: !on && game.gold < cost,
-      fn: () => { view.swapFrom = on ? null : t.id; if (!on) toast('바꿀 돌을 지도에서 누르세요', 'good'); dirty = true; } });
+      fn: () => { view.swapFrom = on ? null : t.id; view.swapTo = null; dirty = true; } });
   }
   if (ph === 'choose' && t.pending) {
+    for (const r of game.recommendations().filter((r) => r.t === t)) out.push(recAction(r));
     for (const c of game.oneHits(t)) out.push({ id: 'onehit', text: `원힛! ${c.name} 만들기`, short: `원힛! ${c.name}`, cls: 'lucky', fn: () => { game.oneHit(t, c.id); view.selTower = null; } });
     const p2 = game.merge2Partner(t);
     if (p2) out.push({ id: 'merge2', text: `2마리 합성해서 남기기 → ${GRADES[t.grade + 1].name} ${DRAGONS[t.type].short}`, short: `2마리 합성해서 남기기 → ${GRADES[t.grade + 1].name}`, cls: 'good', hl: [p2], fn: () => { game.merge2(t); view.selTower = null; } });
@@ -852,7 +853,8 @@ function renderMapActs() {
   const box = $('mapActs');
   const ph = game.phase;
   let list = [], cx0 = 0, cy0 = 0;
-  if (view.selStone && game.canBreakStone()) { list = [stoneAction()]; cx0 = view.selStone.x; cy0 = view.selStone.y; }
+  if (view.swapFrom != null) { /* 자리 바꾸기 중에는 버튼 창을 숨긴다 */ }
+  else if (view.selStone && game.canBreakStone()) { list = [stoneAction()]; cx0 = view.selStone.x; cy0 = view.selStone.y; }
   else if (view.selTower && (ph === 'place' || ph === 'choose' || ph === 'prep')) {
     const t = game.getTower(view.selTower.id);
     if (t) { list = towerActions(t); cx0 = t.x; cy0 = t.y; }
@@ -866,6 +868,31 @@ function renderMapActs() {
   if (cy0 < 2) { box.style.top = `${(cy0 / ROWS) * 100}%`; box.style.transform = 'none'; }
   else if (cy0 > ROWS - 3) { box.style.top = `${((cy0 + 1) / ROWS) * 100}%`; box.style.transform = 'translateY(-100%)'; }
   else { box.style.top = `${((cy0 + 0.5) / ROWS) * 100}%`; box.style.transform = 'translateY(-50%)'; }
+}
+
+// 자리 바꾸기 안내 글자와 확인 (지도 위쪽 가운데, 돌을 가리지 않게 작게)
+function renderSwapBar() {
+  const box = $('swapBar');
+  const from = view.swapFrom != null ? game.getTower(view.swapFrom) : null;
+  if (!from || !game.canSwap(from)) { view.swapFrom = null; view.swapTo = null; box.hidden = true; return; }
+  const cost = game.swapCost(from);
+  const cancel = el('button', { class: 'btn small', type: 'button', text: '취소', onclick: () => { view.swapFrom = null; view.swapTo = null; dirty = true; } });
+  if (!view.swapTo) {
+    setKids(box, el('span', { text: `바꿀 위치의 돌을 클릭하세요 · ${towerName(from)} (${cost}골드)` }), cancel);
+  } else {
+    const { x, y } = view.swapTo;
+    setKids(box, el('span', { text: `이 위치가 맞나요? ${towerName(from)} ↔ 깜빡이는 돌 (${cost}골드)` }),
+      el('button', { class: 'btn small primary', type: 'button', text: '바꾸기', onclick: () => {
+        view.swapFrom = null; view.swapTo = null;
+        if (game.swapWithStone(from, x, y)) view.selTower = game.getTower(from.id);
+        view.selStone = null; dirty = true;
+      } }),
+      el('button', { class: 'btn small', type: 'button', text: '다시 고르기', onclick: () => { view.swapTo = null; dirty = true; } }), cancel);
+  }
+  // 고른 돌이나 드래곤이 위쪽에 있으면 안내를 아래로 내려 가리지 않게
+  const ty = view.swapTo ? view.swapTo.y : from.y;
+  box.classList.toggle('bottom', ty < ROWS / 2);
+  box.hidden = false;
 }
 
 // 지도 아래 반투명 한 줄: 지금 5단계 확률과 승급 버튼
@@ -882,12 +909,30 @@ function renderLuckStrip() {
     }));
 }
 
+// 추천대로 진행: 남기기(또는 2마리 합성·한 단계 내려 남기기) 다음 콤바인이나 3마리 합성까지 한 번에
+function followRec(r) {
+  const t = r.t;
+  let ok = false;
+  if (r.kind === 'merge2') ok = game.merge2(t);
+  else if (r.kind === 'down' || r.kind === 'down3') ok = game.keep(t, true);
+  else ok = game.keep(t);
+  if (!ok) { dirty = true; return; }
+  const kept = game.getTower(t.id);
+  if (kept && r.combo) game.combine(kept, r.combo.id);
+  else if (kept && (r.kind === 'merge3' || r.kind === 'down3')) game.merge3(kept);
+  view.selTower = null; view.selStone = null; dirty = true;
+}
+function recAction(r) {
+  const what = r.combo ? `${r.combo.name} 만들기` : '3마리 합성';
+  return { id: 'rec', text: `추천대로 진행: ${r.text}`, short: `추천대로: ${r.kind === 'merge2' ? '2마리 합성 → ' : r.kind.startsWith('down') ? '내려서 → ' : ''}${what}`, cls: 'rec', fn: () => followRec(r) };
+}
 function recList() {
   const recs = game.recommendations();
   if (!recs.length) return el('p', { class: 'meta', text: '이번에는 남기면 바로 조합이나 3마리 합성이 되는 드래곤이 없어요.' });
-  return el('div', { class: 'recs' }, el('h5', { text: '남길 드래곤 추천' }), ...recs.slice(0, 8).map((r) => el('button', {
-    class: 'recrow', type: 'button', onclick: () => { view.selTower = r.t; view.selStone = null; dirty = true; },
-  }, iconCanvas(towerSprite(r.t), 1), el('span', {}, el('b', { text: towerName(r.t) }), el('br'), r.text))));
+  return el('div', { class: 'recs' }, el('h5', { text: '남길 드래곤 추천' }), ...recs.slice(0, 8).map((r) => el('div', { class: 'recrow2' },
+    el('button', { class: 'recrow', type: 'button', onclick: () => { view.selTower = r.t; view.selStone = null; dirty = true; } },
+      iconCanvas(towerSprite(r.t), 1), el('span', {}, el('b', { text: towerName(r.t) }), el('br'), r.text)),
+    el('button', { class: 'btn small rec', type: 'button', text: '추천대로 진행', onclick: () => followRec(r) }))));
 }
 
 function renderLuck() {
@@ -999,6 +1044,7 @@ function renderAll() {
   renderWave();
   renderBubbles();
   renderMapActs();
+  renderSwapBar();
   renderLuckStrip();
   maybeHint();
 }
@@ -1016,10 +1062,10 @@ cv.addEventListener('click', (e) => {
   const { x, y } = renderer.cellAt(e.clientX, e.clientY);
   if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return;
   // 자리 바꾸기: 드래곤을 고른 뒤 돌을 누르면 맞바꾼다
+  // 자리 바꾸기: 돌을 누르면 "이 위치가 맞나요?" 확인을 먼저 받는다
   if (view.swapFrom != null) {
-    const from = game.getTower(view.swapFrom);
-    view.swapFrom = null;
-    if (from && game.isStone(x, y)) { game.swapWithStone(from, x, y); view.selTower = game.getTower(from.id); view.selStone = null; dirty = true; return; }
+    if (game.isStone(x, y)) { view.swapTo = { x, y }; dirty = true; return; }
+    view.swapFrom = null; view.swapTo = null;
     if (!game.towerAtCell(x, y)) { toast('자리 바꾸기를 취소했어요'); dirty = true; return; }
   }
   const t = game.towerAtCell(x, y);
@@ -1066,7 +1112,7 @@ $('btnHelp').addEventListener('click', () => showTutorial(0, null));
 document.addEventListener('keydown', (e) => {
   if (!game || !$('modal').hidden || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === ' ' && document.activeElement === document.body) { e.preventDefault(); game.startWave(); }
-  else if (e.key === 'Escape') { view.selTower = null; view.selStone = null; view.swapFrom = null; dirty = true; }
+  else if (e.key === 'Escape') { view.selTower = null; view.selStone = null; view.swapFrom = null; view.swapTo = null; dirty = true; }
   else if (/^[1-9]$/.test(e.key) && game.phase === 'place') { const p = game.draw[+e.key - 1]; if (p) { view.selPiece = p.pid; dirty = true; updateGhost(); } }
 });
 
