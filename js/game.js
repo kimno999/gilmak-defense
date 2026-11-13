@@ -5,7 +5,7 @@ import {
   DRAGONS, DRAGON_KEYS, PIXIE_BUFF, PIXIE_RADIUS, COMBOS, COMBO_BY_ID, UPGRADE_COST,
   MONSTER_KINDS, waveFor, hpFor, goldPerKill, roundBonus, raceFor,
   LUCK_TABLE, MAX_LUCK, rollGrade, metaValue, COMBO_INHERIT, mileageFor,
-  MONSTER_SPEED_MUL, SURVIVAL_ROUNDS, SURVIVAL_CLEAR_BONUS, survivalHp, survivalWave,
+  MONSTER_SPEED_MUL, SWAP_COST_DRAGON, SWAP_COST_COMBO, SURVIVAL_ROUNDS, SURVIVAL_CLEAR_BONUS, survivalHp, survivalWave,
   setGridSize, DEFAULT_COLS, DEFAULT_ROWS,
 } from './data.js';
 import { genStage, fixedMap, computeFields, fullPath, blockLevel, isBuildable, OCC, idx, cx, cy } from './map.js';
@@ -92,19 +92,16 @@ export class Game {
     return false;
   }
 
+  // v0.6: 라운드마다 "드래곤의 정수" 5개. 지도에 지을 때 랜덤 드래곤이 나온다 (승급 확률표 적용)
   newDraw() {
     const sc = this.script && this.script[this.round - 1];
-    if (sc) {
-      for (const [type, grade] of sc) this.draw.push({ pid: this.nextId++, kind: 'dragon', type, grade, up: 0, carried: false });
-      return;
-    }
-    for (let i = 0; i < 5; i++) {
-      this.draw.push({
-        pid: this.nextId++, kind: 'dragon',
-        type: DRAGON_KEYS[Math.floor(this.rand() * DRAGON_KEYS.length)],
-        grade: rollGrade(this.luck, this.rand()), up: 0, carried: false,
-      });
-    }
+    this.revealQ = sc ? sc.slice() : null; // 튜토리얼: 짓는 순서대로 정해진 드래곤
+    for (let i = 0; i < 5; i++) this.draw.push({ pid: this.nextId++, kind: 'essence' });
+  }
+
+  revealEssence() {
+    if (this.revealQ && this.revealQ.length) { const [type, grade] = this.revealQ.shift(); return { kind: 'dragon', type, grade, up: 0 }; }
+    return { kind: 'dragon', type: DRAGON_KEYS[Math.floor(this.rand() * DRAGON_KEYS.length)], grade: rollGrade(this.luck, this.rand()), up: 0 };
   }
 
   refresh() {
@@ -112,6 +109,7 @@ export class Game {
     const fp = fullPath(this.map, this.fields, this.occ);
     this.path = fp.path;
     this.breaks = fp.breaks;
+    this.legs = fp.legs;
     this.block = blockLevel(this.map, this.fields);
     this.recalcBuffs();
     this.emit('change');
@@ -144,7 +142,9 @@ export class Game {
     if (!c.ok) { if (c.msg) this.toast(c.msg, 'bad'); return false; }
     const k = this.draw.findIndex((p) => p.pid === pid);
     if (k < 0) return false;
-    const p = this.draw[k];
+    let p = this.draw[k];
+    const fromEssence = p.kind === 'essence';
+    if (fromEssence) p = this.revealEssence();
     const i = idx(x, y);
     const t = {
       id: this.nextId++, x, y, kind: p.kind, type: p.type, grade: p.grade, up: p.up || 0,
@@ -157,12 +157,14 @@ export class Game {
     const before = this.block;
     const len0 = this.path.length;
     this.refresh();
+    const born = fromEssence ? `정수에서 ${towerName(t)} 등장! ` : '';
+    if (fromEssence) { this.fxBurst(t, t.grade >= 2 ? '#ffe066' : '#d8c8ff', t.grade >= 3); this.emit('reveal', t); }
     if (this.block > before) {
-      this.toast(this.block === 2 ? '길이 완전히 막혀서 몬스터가 드래곤을 부수게 돼요!' : '길이 막혀서 몬스터가 돌을 부수게 돼요', 'bad');
+      this.toast(born + (this.block === 2 ? '길이 완전히 막혀서 몬스터가 드래곤을 부수게 돼요!' : '길이 막혀서 몬스터가 돌을 부수게 돼요'), 'bad');
     } else if (this.path.length !== len0 && this.block === 0) {
       const d = this.path.length - len0;
-      this.toast(`경로 ${d > 0 ? '+' : ''}${d}칸`, d > 0 ? 'good' : 'bad');
-    }
+      this.toast(`${born}경로 ${d > 0 ? '+' : ''}${d}칸`, d > 0 || born ? 'good' : 'bad');
+    } else if (born) this.toast(born.trim(), 'good');
     if (!this.draw.length) {
       this.phase = this.towers.some((q) => q.pending) ? 'choose' : 'prep';
       if (this.phase === 'choose') this.toast('남길 드래곤 하나를 고르세요. 나머지는 돌이 돼요');
@@ -197,6 +199,30 @@ export class Game {
     this.phase = 'place';
     this.refresh();
     return p;
+  }
+
+  // ---------- 자리 바꾸기: 남겨 둔 드래곤 ↔ 돌 (v0.6 2번, 배치·정비 시간에만) ----------
+  swapCost(t) {
+    if (!t) return null;
+    return t.kind === 'combo' ? SWAP_COST_COMBO[Math.min(t.up || 0, SWAP_COST_COMBO.length - 1)] : SWAP_COST_DRAGON[t.grade];
+  }
+  canSwap(t) { return !!t && !t.pending && (this.phase === 'place' || this.phase === 'choose' || this.phase === 'prep'); }
+  swapWithStone(t, x, y) {
+    if (!this.canSwap(t)) { this.toast('자리 바꾸기는 배치·정비 시간에만 할 수 있어요', 'bad'); return false; }
+    if (!this.isStone(x, y)) { this.toast('돌과만 자리를 바꿀 수 있어요', 'bad'); return false; }
+    if (!this.allow('swap', t)) return false;
+    const cost = this.swapCost(t);
+    if (this.gold < cost) { this.toast(`골드가 부족해요 (${cost} 필요)`, 'bad'); return false; }
+    this.gold -= cost;
+    const from = idx(t.x, t.y), to = idx(x, y);
+    this.occ[from] = OCC.STONE; this.towerAt[from] = -1;
+    t.x = x; t.y = y; t.hill = this.map.grid[to] === T.HILL;
+    this.occ[to] = OCC.DRAGON; this.towerAt[to] = t.id;
+    this.stats.swaps = (this.stats.swaps || 0) + 1;
+    this.refresh();
+    this.checkAlerts();
+    this.toast(`자리를 바꿨어요 (-${cost}골드)`, 'good');
+    return true;
   }
 
   getTower(id) { return this.towers.find((t) => t.id === id) || null; }

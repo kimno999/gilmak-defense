@@ -571,6 +571,29 @@ export function flag(n, f = 0) {
   return c;
 }
 
+// ---------- 드래곤의 정수 (v0.6): 지으면 랜덤 드래곤이 나오는 빛나는 수정 ----------
+export function essence(f = 0) {
+  const s = new Sprite(32, 32);
+  const fl = [0, -0.5, -1, -0.5][f % 4];
+  const RUNE = s.addPart(['#1a1030', '#2e1c52', '#46307a', '#6448a6', '#8a6ad0'], { layer: 0 });
+  const CRY = s.addPart(['#2a0e4a', '#4a1c7a', '#7a34b0', '#ae5ad8', '#da8cf2', '#f6c8ff', '#ffffff'], { layer: 2 });
+  const CORE = s.addPart(['#7a3a10', '#c06a14', '#f0a42a', '#ffd25a', '#fff0a8', '#ffffff'], { layer: 3 });
+  // 바닥의 마법진
+  s.ellipse(RUNE, 16, 28, 10, 2.6, { flat: 0.7, bias: -0.1 });
+  for (let a = 0; a < 8; a++) { const t = (a / 8) * Math.PI * 2 + f * 0.4; s.dot(16 + Math.cos(t) * 8.5, 28 + Math.sin(t) * 2, a % 2 ? '#c8a8ff' : '#ffe066'); }
+  // 위아래로 뾰족한 수정
+  s.poly(CRY, [[16, 4 + fl], [22, 13 + fl], [19.5, 22 + fl], [16, 25 + fl], [12.5, 22 + fl], [10, 13 + fl]], { base: 0.6, grad: [-0.05, -0.02] });
+  s.poly(CRY, [[16, 4 + fl], [19, 13 + fl], [16, 24 + fl], [13, 13 + fl]], { base: 0.82, grad: [-0.04, -0.02] });
+  // 안쪽의 금빛 핵
+  s.ellipse(CORE, 16, 14 + fl, 2.6, 3.4, { bias: 0.15 });
+  s.dot(15, 12 + fl, '#ffffff');
+  s.light(16, 14 + fl, 'rgba(255,220,120,0.95)', 6);
+  s.light(16, 14 + fl, 'rgba(200,140,255,0.7)', 10);
+  // 주위를 도는 작은 빛
+  for (let k = 0; k < 3; k++) { const t = f * 0.8 + k * 2.1; const x = 16 + Math.cos(t) * 9, y = 15 + Math.sin(t) * 4 + fl; s.dot(x, y, k === 1 ? '#ffe066' : '#e8d0ff'); s.light(x, y, 'rgba(230,200,255,0.7)', 1.6); }
+  return s.render();
+}
+
 // ---------- 조합 드래곤 ----------
 const ELEM_GLOW = {
   fire: ['rgba(255,140,40,0.95)', ['#ffa21c', '#ffe066', '#ff5a10']],

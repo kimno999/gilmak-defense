@@ -7,6 +7,8 @@ import { towerSprite, monsterSprite, stoneSprite, flagSprite, portalSprite, gate
 
 let W = COLS * TILE, H = ROWS * TILE;
 const S = 2;
+// 깃발 구간별 경로 색: 출발→1 하양, 1→2 노랑, 2→3 하늘, 3→4 분홍, 4→도착 주황
+export const LEG_COLORS = ['rgba(255,255,255,0.9)', 'rgba(255,214,110,0.9)', 'rgba(127,212,255,0.92)', 'rgba(255,138,216,0.92)', 'rgba(255,160,74,0.92)'];
 const AMBIENT = {
   meadow: ['#fff2d6', '#c9c0d8', '#6e78b8'],
   canyon: ['#ffe8c0', '#d8b898', '#8a6a78'],
@@ -92,25 +94,44 @@ export class Renderer {
     g.drawImage(this.terrain, 0, 0);
     if (!this.reduced) waterSparkles(g, m.grid, COLS, ROWS, t);
 
-    // 경로: 출발 → 도착 방향으로 흐르는 점선과 작은 화살표
+    // 경로: 출발 → 도착 방향으로 흐르는 점선과 작은 화살표.
+    // 깃발 구간마다 색이 다르고, 여러 구간이 같은 칸 사이를 지나면 줄을 옆으로 살짝 띄운다 (v0.6 1번)
     const path = game.path;
     if (path && path.length > 1) {
       const off = Math.floor(t * 16) % 10;
-      let d = 0;
-      g.fillStyle = game.block ? 'rgba(255,107,107,0.85)' : 'rgba(255,214,110,0.85)';
-      for (let k = 0; k < path.length - 1; k++) {
-        const a = path[k], b = path[k + 1];
-        const ax = cx(a) * TILE + 16, ay = cy(a) * TILE + 16, bx = cx(b) * TILE + 16, by = cy(b) * TILE + 16;
-        const len = Math.max(Math.abs(bx - ax), Math.abs(by - ay));
-        const sx = Math.sign(bx - ax), sy = Math.sign(by - ay);
-        for (let s = 0; s < len; s++, d++) {
-          if ((d - off + 10000) % 10 < 3) g.fillRect(ax + sx * s, ay + sy * s, 2, 2);
+      const legs = game.legs && game.legs.length ? game.legs : [0];
+      const legEnd = (k) => (k + 1 < legs.length ? legs[k + 1] : path.length - 1);
+      const share = new Map(); // 칸 사이 이음 → 그 이음을 지나는 구간들
+      for (let k = 0; k < legs.length; k++) {
+        for (let n = legs[k]; n < legEnd(k); n++) {
+          const a = path[n], b = path[n + 1], key = a < b ? `${a}-${b}` : `${b}-${a}`;
+          const arr = share.get(key) || [];
+          if (!arr.includes(k)) arr.push(k);
+          share.set(key, arr);
         }
-        if (k % 3 === 1) {
-          const mx = (ax + bx) / 2, my = (ay + by) / 2;
-          for (let i = 0; i < 4; i++) {
-            g.fillRect(Math.round(mx + sx * (2 - i) - sy * i), Math.round(my + sy * (2 - i) - sx * i), 1, 1);
-            g.fillRect(Math.round(mx + sx * (2 - i) + sy * i), Math.round(my + sy * (2 - i) + sx * i), 1, 1);
+      }
+      for (let k = 0; k < legs.length; k++) {
+        g.fillStyle = game.block ? 'rgba(255,107,107,0.85)' : legs.length === 1 ? 'rgba(255,214,110,0.9)' : LEG_COLORS[k % LEG_COLORS.length];
+        let d = 0;
+        for (let n = legs[k]; n < legEnd(k); n++) {
+          const a = path[n], b = path[n + 1], key = a < b ? `${a}-${b}` : `${b}-${a}`;
+          const arr = share.get(key);
+          const sh = arr.length > 1 ? Math.round((arr.indexOf(k) - (arr.length - 1) / 2) * 5) : 0;
+          const ax0 = cx(a) * TILE + 16, ay0 = cy(a) * TILE + 16, bx0 = cx(b) * TILE + 16, by0 = cy(b) * TILE + 16;
+          const sx = Math.sign(bx0 - ax0), sy = Math.sign(by0 - ay0);
+          // 진행 방향에 수직으로 띄우기 (방향과 무관하게 같은 쪽)
+          const px = sy !== 0 ? sh : 0, py = sx !== 0 ? sh : 0;
+          const ax = ax0 + px, ay = ay0 + py, bx = bx0 + px, by = by0 + py;
+          const len = Math.max(Math.abs(bx - ax), Math.abs(by - ay));
+          for (let q = 0; q < len; q++, d++) {
+            if ((d - off + 10000) % 10 < 3) g.fillRect(ax + sx * q, ay + sy * q, 2, 2);
+          }
+          if ((n - legs[k]) % 3 === 1) {
+            const mx = (ax + bx) / 2, my = (ay + by) / 2;
+            for (let i2 = 0; i2 < 4; i2++) {
+              g.fillRect(Math.round(mx + sx * (2 - i2) - sy * i2), Math.round(my + sy * (2 - i2) - sx * i2), 1, 1);
+              g.fillRect(Math.round(mx + sx * (2 - i2) + sy * i2), Math.round(my + sy * (2 - i2) + sx * i2), 1, 1);
+            }
           }
         }
       }
@@ -229,6 +250,10 @@ export class Renderer {
       if (s.range > 0) this.pixCircle(tw.x * TILE + 16, tw.y * TILE + 16, s.range * TILE, 'rgba(255,255,255,0.85)');
     }
     if (view.selStone) this.box(view.selStone.x * TILE - 1, view.selStone.y * TILE - 1, '#ffcf4a', 34);
+    // 자리 바꾸기 중: 바꿀 수 있는 돌을 깜빡여 보여 준다
+    if (view.swapFrom != null && Math.floor(t * 3) % 2 === 0) {
+      for (let i = 0; i < game.occ.length; i++) if (game.occ[i] === OCC.STONE) this.box(cx(i) * TILE - 1, cy(i) * TILE - 1, '#8fd8ff', 34);
+    }
     if (view.ghost) {
       const { x, y, sprite, ok, block, range } = view.ghost;
       g.globalAlpha = ok ? 0.65 : 0.3;

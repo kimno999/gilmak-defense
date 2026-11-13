@@ -303,6 +303,7 @@ function chains(x) {
 }
 
 // ---------- 고급 도트 (32px, 프레임 0~3) ----------
+export function essenceSprite(f = 0) { return cached(`hd:ess:${f % 4}`, () => HD.essence(f)); }
 export function dragonSprite(type, grade, f = 0) { return cached(`hd:d:${type}:${grade}:${f % 4}`, () => HD.dragon(type, grade, f)); }
 export function comboSprite(id, up = 0, f = 0) { return cached(`hd:c:${id}:${up}:${f % 4}`, () => HD.comboArt(COMBO_BY_ID[id], up, f)); }
 export function towerSprite(t, f = 0) {

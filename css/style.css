@@ -279,3 +279,11 @@ p.rec { margin: 0; padding: 4px 8px; border-left: 3px solid var(--ice); backgrou
 .grades5 canvas { width: 40px; height: 40px; }
 .legend5 canvas { width: 32px; height: 32px; display: block; margin: 0 auto; }
 .legend5 strong { color: var(--fg); font-size: 12px; }
+
+/* v0.6: 경로 색 안내, 정수 */
+.leglegend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: var(--mute); }
+.leglegend span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.leglegend i { width: 12px; height: 3px; display: inline-block; }
+.piece.ess { border-color: #8a6ad0; }
+.piece.ess .c { color: #d8c8ff; }
+.piece.built { opacity: .9; border-style: dashed; }

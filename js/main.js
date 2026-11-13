@@ -8,8 +8,8 @@ import { SURVIVAL_MAPS, decodeMapCode } from './survival-map.js';
 import { nick, myBest, saveBest, recordText, fetchRank, submitRank } from './rank.js';
 import { TUTORIAL as TUT_GAME, STEPS, stepGuard } from './coach.js';
 import { Game, towerName } from './game.js';
-import { Renderer } from './render.js';
-import { dragonSprite, comboSprite, towerSprite, monsterSprite, stoneSprite, flagSprite, gateSprite, portalSprite, iconCanvas } from './sprites.js';
+import { Renderer, LEG_COLORS } from './render.js';
+import { dragonSprite, essenceSprite, comboSprite, towerSprite, monsterSprite, stoneSprite, flagSprite, gateSprite, portalSprite, iconCanvas } from './sprites.js';
 import { idx } from './map.js';
 import { TUTORIAL } from './tutorial.js';
 
@@ -31,7 +31,7 @@ let game = null;
 let running = false;
 let speed = 1;
 let paused = false;
-const view = { selPiece: null, selTower: null, selStone: null, hover: null, highlight: [], ghost: null, paused: false };
+const view = { selPiece: null, selTower: null, selStone: null, hover: null, highlight: [], ghost: null, paused: false, swapFrom: null };
 let dirty = true;
 
 const gradeColors = ['#9d96b8', '#7be04a', '#4aa8ff', '#c07cff', '#ffcf4a'];
@@ -52,8 +52,8 @@ function el(tag, attrs = {}, ...kids) {
 const icon = (sprite, scale = 3) => iconCanvas(sprite, scale);
 const put = (box, ...kids) => box.append(...kids.flat().filter((k) => k != null && k !== false));
 const setKids = (box, ...kids) => box.replaceChildren(...kids.flat().filter((k) => k != null && k !== false));
-const pieceSprite = (p) => (p.kind === 'combo' ? comboSprite(p.type, p.up || 0) : dragonSprite(p.type, p.grade));
-const pieceName = (p) => towerName(p);
+const pieceSprite = (p) => (p.kind === 'essence' ? essenceSprite(0) : p.kind === 'combo' ? comboSprite(p.type, p.up || 0) : dragonSprite(p.type, p.grade));
+const pieceName = (p) => (p.kind === 'essence' ? '드래곤의 정수' : towerName(p));
 const elemTag = (e) => el('span', { class: 'tag el', style: `border-color:${ELEMENTS[e].color};color:${ELEMENTS[e].color}`, text: ELEMENTS[e].name });
 const targetText = (t) => (t === 'air' ? '공중만' : t === 'ground' ? '지상만' : '지상·공중');
 const fmt = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(Math.round(n * 10) / 10));
@@ -87,7 +87,7 @@ function showTitle() {
   const hero = el('div', { class: 'hero' }, ...DRAGON_KEYS.map((k) => icon(dragonSprite(k, 4), 4)));
   const body = el('div', { class: 'title' },
     hero,
-    el('p', { text: '라운드마다 드래곤 5마리를 놓고 1마리만 남기세요. 나머지는 돌이 되어 미로가 됩니다. 몬스터를 오래 돌아가게 만들어 섬멸하세요.' }),
+    el('p', { text: '라운드마다 드래곤의 정수 5개를 지어 랜덤 드래곤을 부르고, 1마리만 남기세요. 나머지는 돌이 되어 미로가 됩니다. 몬스터를 오래 돌아가게 만들어 섬멸하세요.' }),
     el('div', { class: 'grades5' }, ...GRADES.map((g, i) => el('span', {}, icon(dragonSprite('red', i), 1), `${i + 1}단계`, el('br'), g.name))),
     el('p', { class: 'meta', text: '드래곤은 5단계예요. 골드로 승급할수록 높은 단계가 나올 확률이 올라가요.' }),
     meta.best ? el('p', { text: `일반 모드 최고 기록 ${meta.best} · 보유 마일리지 ${meta.mileage}` }) : el('p', { text: `보유 마일리지 ${meta.mileage}` }),
@@ -271,7 +271,7 @@ function startGame(opts = lastStart) {
   coach = null;
   if (game.mode === 'tutorial') { coach = { i: -1, ctx: {} }; coachGo(0); }
   view.selPiece = game.draw[0] ? game.draw[0].pid : null;
-  view.selTower = null; view.selStone = null;
+  view.selTower = null; view.selStone = null; view.swapFrom = null;
   running = true; paused = false; speed = 1;
   game.on('toast', (m, k) => toast(m, k));
   game.on('change', () => { dirty = true; });
@@ -326,7 +326,7 @@ function onTutorialDone() {
   openModal('튜토리얼 끝!', [
     el('p', { text: '이제 기본 규칙을 다 해 봤어요. 정리하면 이래요.' }),
     el('ul', { class: 'tutsum' },
-      el('li', { text: '라운드마다 5마리를 놓고 1마리만 남겨요. 나머지는 돌(미로 벽)이 돼요.' }),
+      el('li', { text: '라운드마다 정수 5개를 지어 나온 드래곤 중 1마리만 남겨요. 나머지는 돌(미로 벽)이 돼요. 남긴 드래곤은 골드로 돌과 자리를 바꿀 수 있어요.' }),
       el('li', { text: '같은 드래곤 2마리가 한 라운드에 나오면 합성해서 남기고, 필드에 3마리가 모이면 정비 시간에 합성해요.' }),
       el('li', { text: '조합 재료가 5마리 안에 다 나오면 럭키 원힛, 필드에 모아 두면 콤바인이에요.' }),
       el('li', { text: '골드로 승급하면 높은 등급이 잘 나와요. 길을 막지 말고 길게 꼬세요.' }),
@@ -569,11 +569,11 @@ function flashLives() { const v = $('hLives'); v.classList.add('low'); setTimeou
 
 // ---------- 상황별 도움말 (첫 판) ----------
 const HINTS = {
-  place: '오른쪽 "이번 라운드 드래곤"에서 하나를 고르고 지도의 빈칸을 누르면 놓여요. 노란 점선이 몬스터 경로예요. 잘못 놓았으면 그 드래곤을 누르고 다른 빈칸을 눌러 옮길 수 있어요.',
+  place: '라운드마다 "드래곤의 정수" 5개가 생겨요. 정수를 고르고 지도의 빈칸을 누르면 그 자리에 랜덤 드래곤이 나와요 (승급할수록 높은 단계). 점선이 몬스터 경로이고, 깃발 구간마다 색이 달라요. 잘못 놓았으면 그 드래곤을 누르고 다른 빈칸을 눌러 옮길 수 있어요.',
   choose: '이제 하나만 남길 차례예요. 깜빡이는 테두리의 드래곤을 눌러 "이 드래곤 남기기"를 누르세요. 나머지 4마리는 돌이 되어 미로 벽이 돼요. "추천" 말풍선은 남기면 조합이나 합성이 되는 드래곤이에요. 한 단계 내려서 남길 수도 있어요.',
   merge2: '이번 라운드에 같은 종류·같은 등급이 2마리 나왔어요! 그중 하나를 누르고 "2마리 합성해서 남기기"를 누르면 한 단계 높은 드래곤이 돼요.',
   onehit: '럭키 원힛! 이번 라운드 5마리 안에 조합 재료가 다 있어요. 재료 하나를 누르고 무지개색 "원힛" 버튼을 누르면 그 자리에 조합 드래곤이 생겨요.',
-  prep: '정비 시간이에요. 3마리 합성, 콤바인, 업그레이드를 할 수 있고, 돌은 눌러서 무료로 깰 수 있어요. 준비되면 "웨이브 시작"을 누르세요.',
+  prep: '정비 시간이에요. 3마리 합성, 콤바인, 업그레이드를 할 수 있고, 돌은 눌러서 무료로 깰 수 있어요. 남겨 둔 드래곤은 골드를 내고 돌과 자리를 바꿀 수도 있어요. 준비되면 "웨이브 시작"을 누르세요.',
   merge3: '맵에 같은 종류·같은 등급 드래곤이 3마리 모였어요. 하나를 누르고 "3마리 합성"을 누르면 그 자리가 한 단계 높아지고, 나머지 2자리는 돌이 돼요.',
   combine: '조합 재료가 맵에 모였어요! 재료 하나를 누르고 "콤바인"을 누르면 그 자리에 조합 드래곤이 생겨요. 웨이브 중에는 할 수 없어요.',
   luck: '골드가 모였어요. 오른쪽 "승급"에서 골드를 쓰면 높은 등급 드래곤이 나올 확률이 올라가요. 승급은 스테이지가 바뀌면 처음으로 돌아가요.',
@@ -611,15 +611,24 @@ function renderTray() {
   const tray = $('tray');
   tray.replaceChildren();
   const ph = game.phase;
-  $('trayTitle').textContent = ph === 'place' ? `이번 라운드 드래곤 (${game.draw.length}마리 남음)` : '이번 라운드 드래곤';
+  const nEss = game.draw.filter((p) => p.kind === 'essence').length;
+  $('trayTitle').textContent = ph === 'place' ? `드래곤의 정수 (${nEss}개 남음)${game.draw.length > nEss ? ` · 되돌린 드래곤 ${game.draw.length - nEss}` : ''}` : '이번 라운드 드래곤';
   if (ph === 'place' && game.draw.length) {
     if (!game.draw.find((p) => p.pid === view.selPiece)) view.selPiece = game.draw[0].pid;
     for (const p of game.draw) {
       tray.append(el('button', {
-        class: `piece${p.pid === view.selPiece ? ' on' : ''}`, type: 'button',
+        class: `piece${p.pid === view.selPiece ? ' on' : ''}${p.kind === 'essence' ? ' ess' : ''}`, type: 'button',
         'aria-label': pieceName(p), onclick: () => { view.selPiece = p.pid; view.selTower = null; view.selStone = null; dirty = true; },
-      }, icon(pieceSprite(p), 2.5), el('span', { class: 'n', text: pieceName(p) }), el('span', { class: 'c', text: ELEMENTS[p.kind === 'combo' ? COMBO_BY_ID[p.type].elem : DRAGONS[p.type].elem].name }),
+      }, icon(pieceSprite(p), 2.5), el('span', { class: 'n', text: p.kind === 'essence' ? '정수' : pieceName(p) }),
+      p.kind === 'essence' ? el('span', { class: 'c', text: '지으면 랜덤' }) : el('span', { class: 'c', text: ELEMENTS[p.kind === 'combo' ? COMBO_BY_ID[p.type].elem : DRAGONS[p.type].elem].name }),
       p.kind === 'dragon' ? fieldCountTag(game.fieldCount(p.type, p.grade)) : null));
+    }
+    // 이번 라운드에 지어서 나온 드래곤 (필드 수 함께)
+    for (const q of game.pendings()) {
+      tray.append(el('button', {
+        class: `piece built${view.selTower && view.selTower.id === q.id ? ' on' : ''}`, type: 'button', 'aria-label': `${towerName(q)} 고르기`,
+        onclick: () => { view.selTower = q; view.selStone = null; dirty = true; },
+      }, icon(towerSprite(q), 2.5), el('span', { class: 'n', text: towerName(q) }), q.kind === 'dragon' ? fieldCountTag(game.fieldCount(q.type, q.grade)) : null));
     }
     if (!game.hasFreeCell()) {
       tray.append(el('button', { class: 'btn small', type: 'button', style: 'grid-column:1/-1', text: '놓을 자리가 없어요 · 남은 드래곤 보내기', onclick: () => game.discardRemaining() }));
@@ -634,9 +643,9 @@ function renderTray() {
       }
       return;
     }
-    const msg = ph === 'choose' ? '5마리를 모두 놓았어요. 지도에서 남길 드래곤을 고르세요.'
+    const msg = ph === 'choose' ? '정수 5개를 모두 지었어요. 지도에서 남길 드래곤을 고르세요.'
       : ph === 'prep' ? '이번 라운드 선택 완료. 정비 후 웨이브를 시작하세요.'
-        : ph === 'wave' ? '웨이브가 끝나면 새 드래곤 5마리가 나와요.' : '';
+        : ph === 'wave' ? '웨이브가 끝나면 새 정수 5개가 생겨요.' : '';
     tray.append(el('p', { class: 'empty', text: msg }));
   }
 }
@@ -742,6 +751,8 @@ function renderInfo() {
     } else if (ph === 'prep' && !t.pending) {
       for (const a of list) acts.append(actButton(a));
       if (!list.length) acts.append(el('p', { class: 'meta', text: t.kind === 'dragon' ? '같은 종류·등급 3마리를 모으거나, 조합 도감의 재료를 모으면 여기에 버튼이 생겨요.' : '더 업그레이드할 수 없어요.' }));
+    } else if ((ph === 'place' || ph === 'choose') && !t.pending) {
+      for (const a of list) acts.append(actButton(a));
     } else if (ph === 'wave' || ph === 'tester') {
       acts.append(el('p', { class: 'meta', text: '웨이브 중에는 합성·콤바인을 할 수 없어요.' }));
     }
@@ -752,7 +763,13 @@ function renderInfo() {
   // 선택 없음: 단계별 안내
   if (ph === 'place') {
     const p = game.draw.find((q) => q.pid === view.selPiece);
-    if (p) {
+    if (p && p.kind === 'essence') {
+      const row = LUCK_TABLE[game.luck];
+      put(box, el('h4', {}, icon(pieceSprite(p), 2.5), '드래곤의 정수'),
+        el('p', { class: 'meta', text: '지도의 빈칸에 지으면 그 자리에서 랜덤 드래곤이 나와요. 8종 중 하나가, 아래 확률로 5단계 중 하나로 나와요. 승급할수록 높은 단계가 잘 나와요.' }),
+        el('div', { class: 'legend5' }, ...GRADES.map((g, i) => el('div', {}, icon(dragonSprite('red', i), 1), g.name, el('br'), el('strong', { text: `${row[i + 1]}%` })))),
+        el('p', { class: 'meta', text: '잘못 놓았으면 나온 드래곤을 누르고 다른 빈칸을 눌러 옮길 수 있어요 (남길 드래곤을 고르기 전까지).' }));
+    } else if (p) {
       const fake = { ...p, id: -1, x: 0, y: 0, hill: false };
       const s = game.baseStats(fake);
       put(box, el('h4', {}, icon(pieceSprite(p), 2.5), pieceName(p)),
@@ -788,6 +805,12 @@ function towerActions(t) {
     out.push({ id: 'return', text: '되돌리기 (목록으로)', short: '되돌리기', cls: 'small', fn: () => {
       const p = game.returnTower(t); view.selTower = null; if (p) view.selPiece = p.pid; dirty = true;
     } });
+  }
+  if (game.canSwap(t)) {
+    const cost = game.swapCost(t);
+    const on = view.swapFrom === t.id;
+    out.push({ id: 'swap', text: on ? '자리 바꾸기 취소' : `돌과 자리 바꾸기 (${cost}골드)`, short: on ? '자리 바꾸기 취소' : `돌과 자리 바꾸기 ${cost}골드`, cls: on ? 'primary' : '', disabled: !on && game.gold < cost,
+      fn: () => { view.swapFrom = on ? null : t.id; if (!on) toast('바꿀 돌을 지도에서 누르세요', 'good'); dirty = true; } });
   }
   if (ph === 'choose' && t.pending) {
     for (const c of game.oneHits(t)) out.push({ id: 'onehit', text: `원힛! ${c.name} 만들기`, short: `원힛! ${c.name}`, cls: 'lucky', fn: () => { game.oneHit(t, c.id); view.selTower = null; } });
@@ -915,17 +938,18 @@ function renderHud() {
   $('hLives').classList.toggle('low', game.lives <= 5);
   $('hPath').textContent = `${Math.max(0, game.path.length - 1)}칸`;
   const ph = game.phase;
-  $('phaseLine').textContent = ph === 'place' ? `드래곤 배치: ${game.draw.length}마리를 지도에 놓으세요`
+  $('phaseLine').textContent = ph === 'place' ? `드래곤의 정수: ${game.draw.length}개를 지도에 지으세요`
     : ph === 'choose' ? '하나만 남기기: 남길 드래곤을 고르세요'
       : ph === 'prep' ? '정비 시간: 합성·콤바인 후 웨이브를 시작하세요'
         : ph === 'wave' ? '웨이브 진행 중' : ph === 'tutdone' || ph === 'showcase' ? '튜토리얼: 잘 만든 미로' : ph === 'tester' ? '데미지 테스터: 도착할 때까지 데미지를 넣으세요' : ph === 'over' ? '게임 오버' : '스테이지 클리어';
   const st = $('btnStart');
   st.disabled = ph !== 'prep';
-  st.textContent = ph === 'prep' ? `웨이브 시작 (${game.roundLabel()})` : ph === 'place' ? `드래곤 배치 중 (${game.draw.length}마리 남음)` : ph === 'choose' ? '남길 드래곤을 고르세요' : ph === 'wave' ? '웨이브 진행 중…' : ph === 'tester' ? '데미지 측정 중…' : '대기';
+  st.textContent = ph === 'prep' ? `웨이브 시작 (${game.roundLabel()})` : ph === 'place' ? `정수 짓는 중 (${game.draw.length}개 남음)` : ph === 'choose' ? '남길 드래곤을 고르세요' : ph === 'wave' ? '웨이브 진행 중…' : ph === 'tester' ? '데미지 측정 중…' : '대기';
   $('btnSpeed').textContent = `속도 ×${speed}`;
   $('btnPause').textContent = paused ? '계속하기' : '일시정지';
   const cnt = [0, 0, 0, 0, 0];
   for (const t of game.map.grid) cnt[t]++;
+  renderLegLegend();
   if (game.mode === 'tutorial') {
     $('mapName').textContent = '튜토리얼 · 연습 맵';
     $('mapTags').textContent = `${COLS} × ${ROWS}칸 · 깃발 ${game.map.flags.length} · ${game.maxRound}라운드 · 지지 않아요`;
@@ -936,6 +960,17 @@ function renderHud() {
     $('mapName').textContent = `스테이지 ${game.stage} · ${game.map.biome}`;
     $('mapTags').textContent = `깃발 4 · 바위 ${cnt[T.ROCK]} · 물 ${cnt[T.WATER]} · 진흙 ${cnt[T.MUD]} · 고지대 ${cnt[T.HILL]}`;
   }
+}
+
+// 깃발 구간별 경로 색 안내 (v0.6 1번)
+let legKey = '';
+function renderLegLegend() {
+  const n = game.map.flags.length + 1;
+  const key = `${n}`;
+  if (key === legKey) return;
+  legKey = key;
+  const names = n === 1 ? ['출발→도착'] : ['출발→1', ...Array.from({ length: n - 2 }, (_, i) => `${i + 1}→${i + 2}`), `${n - 1}→도착`];
+  setKids($('legLegend'), ...(n === 1 ? [] : names.map((t, k) => el('span', {}, el('i', { style: `background:${LEG_COLORS[k % LEG_COLORS.length]}` }), t))));
 }
 
 // 세로가 긴 맵(26×21 등)도 지도와 아래 버튼이 한 화면에 들어오게 폭을 줄인다 (넓은 화면에서만)
@@ -980,6 +1015,13 @@ cv.addEventListener('click', (e) => {
   if (!game || !running) return;
   const { x, y } = renderer.cellAt(e.clientX, e.clientY);
   if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return;
+  // 자리 바꾸기: 드래곤을 고른 뒤 돌을 누르면 맞바꾼다
+  if (view.swapFrom != null) {
+    const from = game.getTower(view.swapFrom);
+    view.swapFrom = null;
+    if (from && game.isStone(x, y)) { game.swapWithStone(from, x, y); view.selTower = game.getTower(from.id); view.selStone = null; dirty = true; return; }
+    if (!game.towerAtCell(x, y)) { toast('자리 바꾸기를 취소했어요'); dirty = true; return; }
+  }
   const t = game.towerAtCell(x, y);
   if (t) { view.selTower = view.selTower && view.selTower.id === t.id ? null : t; view.selStone = null; dirty = true; return; }
   if (game.isStone(x, y)) { view.selStone = view.selStone && view.selStone.x === x && view.selStone.y === y ? null : { x, y }; view.selTower = null; dirty = true; return; }
@@ -1012,7 +1054,7 @@ function updateGhost() {
   let block = 0;
   if (c.ok) block = game.previewBlock(x, y);
   ghostKey = key;
-  const s = game.baseStats({ ...p, id: -1 });
+  const s = p.kind === 'essence' ? { range: 0 } : game.baseStats({ ...p, id: -1 });
   view.ghost = { x, y, sprite: pieceSprite(p), ok: c.ok, block, range: s.range + (game.map.grid[idx(x, y)] === T.HILL && s.range > 0 ? HILL_RANGE : 0) };
 }
 
@@ -1024,7 +1066,7 @@ $('btnHelp').addEventListener('click', () => showTutorial(0, null));
 document.addEventListener('keydown', (e) => {
   if (!game || !$('modal').hidden || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === ' ' && document.activeElement === document.body) { e.preventDefault(); game.startWave(); }
-  else if (e.key === 'Escape') { view.selTower = null; view.selStone = null; dirty = true; }
+  else if (e.key === 'Escape') { view.selTower = null; view.selStone = null; view.swapFrom = null; dirty = true; }
   else if (/^[1-9]$/.test(e.key) && game.phase === 'place') { const p = game.draw[+e.key - 1]; if (p) { view.selPiece = p.pid; dirty = true; updateGhost(); } }
 });
 

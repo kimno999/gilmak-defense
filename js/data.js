@@ -12,6 +12,9 @@ export const CHECKPOINTS = 4;
 export const START_LIVES = 20;
 export const START_GOLD = 10;
 export const STONE_REMOVE_COST = 0; // v0.5: 돌 깨기 무료 (배치·정비 시간에만)
+// v0.6: 드래곤과 돌의 자리 바꾸기 비용 (골드). 등급이 높을수록 비싸다
+export const SWAP_COST_DRAGON = [5, 10, 20, 40, 80]; // 알, 해츨링, 어린 비룡, 성체, 고위
+export const SWAP_COST_COMBO = [60, 100, 150]; // 조합, 1단계 업그레이드, 2단계 업그레이드
 export const MONSTER_SPEED_MUL = 1.1; // v0.5: 몬스터 이동 속도 +10%
 
 // 지형

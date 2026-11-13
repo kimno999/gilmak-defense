@@ -185,10 +185,12 @@ export function computeFields(map, occ) {
 export function fullPath(map, fields, occ) {
   const path = [];
   const breaks = [];
+  const legs = []; // 구간 k 가 path 의 몇 번째 칸에서 시작하는지
   for (let k = 0; k < fields.length; k++) {
     let i = map.points[k];
     const goal = map.points[k + 1];
     if (k === 0) path.push(i);
+    legs.push(path.length - 1);
     let guard = 0;
     while (i !== goal && guard++ < N) {
       i = fields[k].next[i];
@@ -197,7 +199,7 @@ export function fullPath(map, fields, occ) {
       if (occ[i] !== OCC.EMPTY) breaks.push(i);
     }
   }
-  return { path, breaks };
+  return { path, breaks, legs };
 }
 
 // 막힘 정도: 0 뚫림, 1 돌을 부숴야 함, 2 드래곤까지 부숴야 함
