@@ -855,6 +855,20 @@ export class Game {
     this.startStage(genStage(this.stage + 1, this.seed));
   }
 
+  // 튜토리얼 마지막: 잘 만든 미로 보여 주기. cells: 돌 칸 번호, towers: [{ i, kind, type, grade }]
+  showcase(cells, towers) {
+    this.enemies = []; this.projs = []; this.pools = []; this.spawnQ = []; this.draw = [];
+    this.towers = [];
+    this.occ.fill(OCC.EMPTY); this.towerAt.fill(-1);
+    for (const i of cells) this.occ[i] = OCC.STONE;
+    for (const d of towers) {
+      const t = { id: this.nextId++, x: cx(d.i), y: cy(d.i), kind: d.kind, type: d.type, grade: d.grade || 0, up: d.up || 0, pending: false, cool: 0.3, angle: 0, hill: false };
+      this.towers.push(t); this.occ[d.i] = OCC.DRAGON; this.towerAt[d.i] = t.id;
+    }
+    this.phase = 'showcase';
+    this.refresh();
+  }
+
   // ---------- 서바이벌: 데미지 테스터 (v0.5 7번) ----------
   startTester() {
     this.phase = 'tester';

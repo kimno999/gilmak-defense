@@ -2,6 +2,8 @@
 // 도형마다 입체 법선을 계산해 왼쪽 위 빛으로 4~6단계 명암을 칠하고,
 // 색에 맞춘 외곽선(밝은 쪽은 한 단계 밝게)을 자동으로 넣는다.
 
+import { COMBO_ART } from './combo-art.js'; // 조합 드래곤 13종 전용 그림
+
 const L = (() => { const v = [-0.55, -0.75, 0.62]; const m = Math.hypot(...v); return v.map((a) => a / m); })();
 
 // 색 경로: 그림자는 보라 쪽, 밝은 쪽은 노랑 쪽으로 색상을 틀어 풍부하게
@@ -306,8 +308,11 @@ export function dragonArt(th, grade, f = 0, extra = {}) {
   // 3 성체 드래곤, 4 고위 드래곤
   const big = grade === 4;
   const wy = flap * 1.5;
+  const ctx = { s, br, flap, big, B, BODY, HEAD, HORN, WING, WINGF, BACK, th };
+  if (extra.pre) extra.pre(ctx);
   // 뒤쪽 날개
-  if (th.butterfly) butterfly(13, 13, big ? 1.35 : 1.15, WING);
+  if (extra.wings === false) { /* 날개 없음 */ }
+  else if (th.butterfly) butterfly(13, 13, big ? 1.35 : 1.15, WING);
   else s.poly(BACK, big
     ? [[11, 14], [1, 2 - wy], [5, 5 - wy], [6, 1 - wy], [10, 5 - wy], [12, 0 - wy], [15, 7], [16, 14]]
     : [[12, 15], [3, 3 - wy], [7, 7 - wy], [9, 3 - wy], [12, 8 - wy], [15, 5 - wy], [16, 15]], { base: 0.28, grad: [0.02, 0.03] });
@@ -335,7 +340,8 @@ export function dragonArt(th, grade, f = 0, extra = {}) {
     if (k < tips.length - 1) { const [nx, ny] = tips[k + 1]; mem.push([(x * 2 + nx) / 3 + 1, (y * 2 + ny) / 3 + 5]); mem.push([(x + nx * 2) / 3 + 1, (y + ny * 2) / 3 + 4]); }
   });
   mem.push([20, 16]);
-  if (th.butterfly) {
+  if (extra.wings === false) { /* 날개 없음 */ }
+  else if (th.butterfly) {
     butterfly(17, 14, big ? 1.35 : 1.15, WINGF);
     for (const [x, y] of [[11, 7 - flap], [14, 5 - flap], [12, 12 - flap]]) { s.dot(x, y, '#ffffff'); s.dot(x + 1, y, th.mark[0]); }
   } else {
@@ -370,6 +376,7 @@ export function dragonArt(th, grade, f = 0, extra = {}) {
     s.dot(23, 1, '#fff6c4'); s.dot(23, 2, '#ff5a8a');
     s.light(23, 2, 'rgba(255,230,120,0.9)', 4);
   }
+  if (extra.post) extra.post(ctx);
   return s.render();
 }
 
@@ -576,6 +583,7 @@ const ELEM_GLOW = {
 
 // combo: data.js 의 COMBOS 항목
 export function comboArt(combo, up = 0, f = 0) {
+  if (COMBO_ART[combo.id]) return COMBO_ART[combo.id](up, f);
   if (combo.id === 'sealedRed') {
     const th = DRAGON_THEMES.red;
     if (up === 0) {

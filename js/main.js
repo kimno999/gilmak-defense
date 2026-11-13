@@ -269,7 +269,7 @@ function startGame(opts = lastStart) {
     : sm ? new Game({ meta: { levels: { ...meta.levels } }, mode: 'survival', survivalMap: { key: sm.key, name: sm.name, def: sm.def } })
       : new Game({ meta: { levels: { ...meta.levels } } });
   coach = null;
-  if (game.mode === 'tutorial') { coach = { i: -1, ctx: {} }; coachGo(0); game.on('tutorialdone', onTutorialDone); }
+  if (game.mode === 'tutorial') { coach = { i: -1, ctx: {} }; coachGo(0); }
   view.selPiece = game.draw[0] ? game.draw[0].pid : null;
   view.selTower = null; view.selStone = null;
   running = true; paused = false; speed = 1;
@@ -318,10 +318,9 @@ function renderCoach() {
   $('coachNext').hidden = !st.btn;
   $('coachNext').textContent = st.btn || '';
 }
-$('coachNext').addEventListener('click', () => { if (coach) coachGo(coach.i + 1); });
+$('coachNext').addEventListener('click', () => { if (!coach) return; if (STEPS[coach.i] && STEPS[coach.i].last) { onTutorialDone(); return; } coachGo(coach.i + 1); });
 $('coachQuit').addEventListener('click', () => { coach = null; running = false; $('coach').hidden = true; showTitle(); });
 function onTutorialDone() {
-  running = false;
   coach = null; $('coach').hidden = true;
   markSeen('tutmode'); markSeen('tutorial');
   openModal('튜토리얼 끝!', [
@@ -855,7 +854,7 @@ function renderLuckStrip() {
     el('span', { class: 'lsT', text: `승급 ${game.luck}/${MAX_LUCK}` }),
     ...GRADES.map((g, i) => el('span', { class: `lsG${row[i + 1] ? '' : ' zero'}` }, el('i', { style: `background:${gradeColors[i]}` }), el('span', { class: 'lsN', text: g.name }), ` ${row[i + 1]}%`)),
     el('button', {
-      class: 'btn small lsB', type: 'button', disabled: cost == null || game.gold < cost || game.isFighting() || game.phase === 'over' || game.phase === 'tutdone',
+      class: 'btn small lsB', type: 'button', disabled: cost == null || game.gold < cost || game.isFighting() || game.phase === 'over' || game.phase === 'tutdone' || game.phase === 'showcase',
       text: cost == null ? '최대 승급' : `승급 ${cost}골드`, onclick: (e) => { e.stopPropagation(); game.buyLuck(); dirty = true; },
     }));
 }
@@ -919,7 +918,7 @@ function renderHud() {
   $('phaseLine').textContent = ph === 'place' ? `드래곤 배치: ${game.draw.length}마리를 지도에 놓으세요`
     : ph === 'choose' ? '하나만 남기기: 남길 드래곤을 고르세요'
       : ph === 'prep' ? '정비 시간: 합성·콤바인 후 웨이브를 시작하세요'
-        : ph === 'wave' ? '웨이브 진행 중' : ph === 'tutdone' ? '튜토리얼 끝' : ph === 'tester' ? '데미지 테스터: 도착할 때까지 데미지를 넣으세요' : ph === 'over' ? '게임 오버' : '스테이지 클리어';
+        : ph === 'wave' ? '웨이브 진행 중' : ph === 'tutdone' || ph === 'showcase' ? '튜토리얼: 잘 만든 미로' : ph === 'tester' ? '데미지 테스터: 도착할 때까지 데미지를 넣으세요' : ph === 'over' ? '게임 오버' : '스테이지 클리어';
   const st = $('btnStart');
   st.disabled = ph !== 'prep';
   st.textContent = ph === 'prep' ? `웨이브 시작 (${game.roundLabel()})` : ph === 'place' ? `드래곤 배치 중 (${game.draw.length}마리 남음)` : ph === 'choose' ? '남길 드래곤을 고르세요' : ph === 'wave' ? '웨이브 진행 중…' : ph === 'tester' ? '데미지 측정 중…' : '대기';

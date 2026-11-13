@@ -24,6 +24,7 @@ export const STEPS = [
     text: [
       '몬스터는 출발(보라색 포털) → 깃발 1 → 깃발 2 → 도착(성문) 순서로 걸어가요. 노란 점선이 지금 몬스터가 갈 길이에요.',
       '드래곤을 놓아 그 길을 길게 꼬아 놓으면, 오래 걷는 동안 드래곤이 몬스터를 공격해요. 4라운드만 직접 해 볼게요.',
+      '튜토리얼을 끝까지 하면, 이 연습 맵에서 잘 만든 미로를 하나 보여 드려요!',
     ],
     btn: '다음', only: [],
   },
@@ -169,7 +170,25 @@ export const STEPS = [
     text: ['"웨이브 시작"을 눌러 마무리하세요.'],
     done: (g) => g.phase === 'tutdone', only: ['wave'],
   },
+  {
+    title: '잘 만든 미로 구경하기',
+    text: [
+      '약속한 미로예요! 같은 연습 맵에서 돌과 드래곤 40칸으로 만든, 최적에 가까운 미로예요. 빈 맵이면 29칸이던 길이 211칸이 됐어요.',
+      '벽을 일자로 쌓기보다 비스듬히 엇갈려 놓으면 몬스터가 지그재그로 오래 돌아가요. 드래곤은 길이 여러 번 지나가는 굽은 곳에 두면 같은 몬스터를 여러 번 때려요.',
+    ],
+    enter: (g) => g.showcase(SHOWCASE.stones, SHOWCASE.towers),
+    btn: '튜토리얼 끝내기', only: [], last: true,
+  },
 ];
+
+// 연습 맵의 잘 만든 미로 (돌·드래곤 40칸, 경로 211칸. 빈 맵은 29칸). 탐색으로 찾은 배치
+const MAZE = [4, 17, 20, 23, 26, 34, 37, 38, 40, 43, 51, 53, 57, 60, 64, 67, 71, 74, 77, 81, 84, 85, 86, 91, 94, 99, 103, 108, 111, 114, 120, 122, 125, 129, 134, 137, 139, 142, 149, 155];
+const SHOW_TOWERS = [
+  { i: 34, kind: 'combo', type: 'hellfire' }, { i: 125, kind: 'combo', type: 'blizzard' }, { i: 38, kind: 'combo', type: 'tempest' },
+  { i: 74, kind: 'combo', type: 'eclipseQueen' }, { i: 84, kind: 'combo', type: 'basilisk' }, { i: 120, kind: 'combo', type: 'royalSlayer' },
+  { i: 129, kind: 'combo', type: 'frozen' }, { i: 149, kind: 'combo', type: 'shadowWyvern' },
+];
+export const SHOWCASE = { stones: MAZE.filter((i) => !SHOW_TOWERS.some((t) => t.i === i)), towers: SHOW_TOWERS, length: 211, empty: 29 };
 
 // 지금 단계에서 허락하는 행동인지 (true 또는 막는 이유)
 export function stepGuard(step) {

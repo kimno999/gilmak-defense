@@ -137,8 +137,11 @@ export class Renderer {
       const s = tw.st;
       const r = (s.buffR || s.auraR || 0) * TILE;
       if (!r) continue;
-      const col = s.pixieBuff ? 'rgba(255,138,216,0.6)' : s.buffSpd ? 'rgba(255,224,102,0.7)' : s.auraDmg ? 'rgba(255,138,61,0.7)' : 'rgba(123,224,74,0.6)';
-      this.pixCircle(tw.x * TILE + 16, tw.y * TILE + 16, r, col, true);
+      // 오라 범위는 아주 연한 원으로 늘 보여 준다
+      const rgb = s.pixieBuff ? '255,138,216' : s.buffSpd ? '255,224,102' : s.auraDmg ? '255,138,61' : '123,224,74';
+      g.fillStyle = `rgba(${rgb},0.07)`;
+      g.beginPath(); g.arc(tw.x * TILE + 16, tw.y * TILE + 16, r, 0, Math.PI * 2); g.fill();
+      this.pixCircle(tw.x * TILE + 16, tw.y * TILE + 16, r, `rgba(${rgb},0.32)`, true);
       if (s.auraDmg) lights.push([tw.x * TILE + 16, tw.y * TILE + 16, 'rgba(255,120,40,0.35)', r]);
     }
     // 산성 늪
