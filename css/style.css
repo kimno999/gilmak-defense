@@ -250,3 +250,14 @@ p.rec { margin: 0; padding: 4px 8px; border-left: 3px solid var(--ice); backgrou
 .nick { flex: 1 1 180px; min-width: 0; min-height: 44px; font: inherit; color: var(--fg); background: var(--surface-hi); border: 2px solid var(--line-hi); padding: 6px 10px; }
 .nick:focus-visible { outline: 2px solid var(--ice); outline-offset: 2px; }
 .dmgnum { font-family: var(--f-display); font-size: 30px; color: var(--accent); font-variant-numeric: tabular-nums; margin-top: 4px; }
+
+/* 튜토리얼 모드 안내 */
+.coach { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; padding: 10px 14px; background: #2a2140; border: 2px solid var(--accent); box-shadow: 4px 4px 0 #000; }
+.coachHead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.coachHead b { font-family: var(--f-display); font-weight: 400; font-size: 19px; color: var(--accent); }
+.coachStep { font-size: 11.5px; letter-spacing: .08em; color: var(--mute); font-variant-numeric: tabular-nums; }
+.coachText p { margin: 0 0 4px; font-size: 14px; line-height: 1.55; max-width: 70ch; }
+.coachActs { display: flex; gap: 6px; flex-wrap: wrap; }
+.coach.flash { animation: coachFlash .5s ease-out; }
+@keyframes coachFlash { from { background: #4a3a20; } to { background: #2a2140; } }
+@media (prefers-reduced-motion: reduce) { .coach.flash { animation: none; } }

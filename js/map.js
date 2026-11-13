@@ -219,6 +219,6 @@ export function fixedMap(def, name, key) {
   const keyCells = [def.spawn, ...flags, def.goal];
   return {
     grid, spawn: { ...def.spawn }, goal: { ...def.goal }, flags, points: keyCells.map((p) => idx(p.x, p.y)),
-    biome: name, biomeKey: 'meadow', id: key === 'direct' ? 7702 : 7701, stage: 1, fixed: true, key,
+    biome: name, biomeKey: 'meadow', id: key === 'direct' ? 7702 : key === 'tutorial' ? 7703 : 7701, stage: 1, fixed: true, key,
   };
 }

@@ -32,6 +32,11 @@
 
   <main class="stage">
     <section class="board">
+      <div class="coach" id="coach" hidden aria-live="polite">
+        <div class="coachHead"><span class="coachStep" id="coachStep"></span><b id="coachTitle"></b></div>
+        <div class="coachText" id="coachText"></div>
+        <div class="coachActs"><button class="btn small primary" type="button" id="coachNext" hidden></button><button class="btn small" type="button" id="coachQuit">튜토리얼 그만두기</button></div>
+      </div>
       <div class="mapline"><span class="mapname" id="mapName"></span><span class="maptags" id="mapTags"></span></div>
       <div class="canvasWrap" id="wrap">
         <canvas id="cv" width="384" height="256" aria-label="전장 지도"></canvas>

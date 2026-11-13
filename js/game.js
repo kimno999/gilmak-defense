@@ -27,7 +27,8 @@ export function towerName(t) {
 
 export class Game {
   // mode: 'normal' | 'survival'. 서바이벌은 survivalMap = { key, name, def(맵 코드 풀린 것) } 이 필요하다.
-  constructor({ seed, meta, rand, mode, survivalMap } = {}) {
+  // 튜토리얼 모드는 tutorial = { def(맵), draws(라운드별 5마리), gold } 로 짧은 대본 게임을 만든다.
+  constructor({ seed, meta, rand, mode, survivalMap, tutorial } = {}) {
     this.rand = rand || Math.random;
     this.seed = seed ?? ((this.rand() * 4294967296) >>> 0);
     this.meta = meta || { levels: {} };
@@ -38,9 +39,15 @@ export class Game {
     this.gold = START_GOLD;
     this.stats = { roundsCleared: 0, bossKills: 0, stagesCleared: 0, kills: 0, dragonsLost: 0, stonesBroken: 0 };
     this.time = 0;
-    this.mode = mode === 'survival' ? 'survival' : 'normal';
-    this.maxRound = this.mode === 'survival' ? SURVIVAL_ROUNDS : ROUNDS_PER_STAGE;
-    if (this.mode === 'survival') {
+    this.mode = mode === 'survival' || mode === 'tutorial' ? mode : 'normal';
+    this.maxRound = this.mode === 'survival' ? SURVIVAL_ROUNDS : this.mode === 'tutorial' ? tutorial.draws.length : ROUNDS_PER_STAGE;
+    this.guard = null; // 튜토리얼: (행동, 대상) => true 또는 막는 이유 문구
+    if (this.mode === 'tutorial') {
+      this.script = tutorial.draws;
+      this.gold = tutorial.gold;
+      setGridSize(tutorial.def.cols, tutorial.def.rows);
+      this.startStage(fixedMap(tutorial.def, '연습 맵', 'tutorial'));
+    } else if (this.mode === 'survival') {
       this.survivalMap = survivalMap;
       setGridSize(survivalMap.def.cols, survivalMap.def.rows);
       this.startStage(fixedMap(survivalMap.def, survivalMap.name, survivalMap.key));
@@ -76,7 +83,21 @@ export class Game {
     this.emit('stage');
   }
 
+  // 튜토리얼에서 지금 단계가 허락하는 행동인지
+  allow(action, t) {
+    if (!this.guard) return true;
+    const r = this.guard(action, t);
+    if (r === true || r == null) return true;
+    this.toast(r, 'bad');
+    return false;
+  }
+
   newDraw() {
+    const sc = this.script && this.script[this.round - 1];
+    if (sc) {
+      for (const [type, grade] of sc) this.draw.push({ pid: this.nextId++, kind: 'dragon', type, grade, up: 0, carried: false });
+      return;
+    }
     for (let i = 0; i < 5; i++) {
       this.draw.push({
         pid: this.nextId++, kind: 'dragon',
@@ -222,6 +243,7 @@ export class Game {
 
   keep(t, down = false) {
     if (this.phase !== 'choose' || !t || !t.pending) return false;
+    if (!this.allow(down ? 'keepDown' : 'keep', t)) return false;
     if (down) { if (!this.canDowngrade(t)) return false; t.grade--; }
     this.finishChoose(t);
     this.toast(`${towerName(t)} ${down ? '(한 단계 내려서) ' : ''}남김. 나머지는 돌이 됐어요`, 'good');
@@ -263,7 +285,7 @@ export class Game {
 
   merge2(t) {
     const p = this.merge2Partner(t);
-    if (!p) return false;
+    if (!p || !this.allow('merge2', t)) return false;
     t.grade++;
     this.finishChoose(t);
     this.fxBurst(t, DRAGONS[t.type].pal.l);
@@ -295,7 +317,7 @@ export class Game {
 
   oneHit(t, comboId) {
     const c = COMBO_BY_ID[comboId];
-    if (!c || this.oneHits(t).indexOf(c) < 0) return false;
+    if (!c || this.oneHits(t).indexOf(c) < 0 || !this.allow('onehit', t)) return false;
     t.kind = 'combo'; t.type = c.id; t.grade = 0; t.up = 0;
     this.finishChoose(t);
     this.fxBurst(t, '#ffe066', true);
@@ -316,7 +338,7 @@ export class Game {
 
   merge3(t) {
     const ps = this.merge3Partners(t);
-    if (!ps) return false;
+    if (!ps || !this.allow('merge3', t)) return false;
     for (const p of ps) this.removeTower(p, true);
     t.grade++;
     this.refresh();
@@ -340,7 +362,7 @@ export class Game {
 
   combine(t, comboId) {
     const ms = this.combineMaterials(t, comboId);
-    if (!ms) return false;
+    if (!ms || !this.allow('combine', t)) return false;
     const c = COMBO_BY_ID[comboId];
     for (const m of ms) this.removeTower(m, true);
     t.kind = 'combo'; t.type = c.id; t.grade = 0; t.up = 0;
@@ -377,10 +399,12 @@ export class Game {
 
   removeStone(x, y) {
     if (!this.canBreakStone()) { this.toast('돌은 배치·정비 시간에만 깰 수 있어요', 'bad'); return false; }
+    if (!this.allow('stone')) return false;
     const i = idx(x, y);
     if (this.occ[i] !== OCC.STONE) return false;
     if (this.gold < STONE_REMOVE_COST) { this.toast(`골드가 부족해요 (${STONE_REMOVE_COST} 필요)`, 'bad'); return false; }
     this.gold -= STONE_REMOVE_COST;
+    this.stats.stonesRemoved = (this.stats.stonesRemoved || 0) + 1;
     this.occ[i] = OCC.EMPTY;
     this.fx.push({ k: 'break', x: x + 0.5, y: y + 0.5, t: 0, life: 0.5, dragon: false });
     this.refresh();
@@ -393,6 +417,7 @@ export class Game {
   buyLuck() {
     const c = this.luckCost();
     if (c == null || this.isFighting() || this.phase === 'over') return false;
+    if (!this.allow('luck')) return false;
     if (this.gold < c) { this.toast(`골드가 부족해요 (${c} 필요)`, 'bad'); return false; }
     this.gold -= c;
     this.luck++;
@@ -482,12 +507,15 @@ export class Game {
   }
 
   // ---------- 웨이브 ----------
-  nextWave() { return this.mode === 'survival' ? survivalWave(this.round) : waveFor(this.stage, this.round); }
+  nextWave() {
+    if (this.mode === 'tutorial') return { list: new Array(3 + this.round).fill('normal'), race: 'human' };
+    return this.mode === 'survival' ? survivalWave(this.round) : waveFor(this.stage, this.round);
+  }
 
   startWave() {
-    if (this.phase !== 'prep') return false;
+    if (this.phase !== 'prep' || !this.allow('wave')) return false;
     const w = this.nextWave();
-    const hp = this.mode === 'survival' ? survivalHp(this.round) : hpFor(this.stage, this.round);
+    const hp = this.mode === 'tutorial' ? 6 + this.round * 4 : this.mode === 'survival' ? survivalHp(this.round) : hpFor(this.stage, this.round);
     this.spawnQ = w.list.map((k) => ({ kind: k, race: w.race, hp }));
     this.spawnT = 0.3;
     this.phase = 'wave';
@@ -604,6 +632,7 @@ export class Game {
     if (e.tester) { this.finishSurvival(); return; }
     this.lives -= e.life;
     this.emit('leak', e);
+    if (this.mode === 'tutorial' && this.lives < 1) this.lives = 1; // 튜토리얼에서는 지지 않는다
     if (this.lives <= 0) { this.lives = 0; this.gameOver(); }
   }
 
@@ -800,6 +829,12 @@ export class Game {
       this.startTester();
       return;
     }
+    if (this.mode === 'tutorial' && this.round >= this.maxRound) {
+      this.phase = 'tutdone';
+      this.emit('tutorialdone');
+      this.emit('change');
+      return;
+    }
     if (this.round >= this.maxRound) {
       this.stats.stagesCleared++;
       this.phase = 'stageclear';
@@ -890,6 +925,6 @@ export class Game {
   }
 
   // 정보
-  roundLabel() { return this.mode === 'survival' ? `${this.round} / ${this.maxRound}` : `${this.stage}-${this.round}`; }
+  roundLabel() { return this.mode !== 'normal' ? `${this.round} / ${this.maxRound}` : `${this.stage}-${this.round}`; }
   nextRace() { return raceFor(this.round); }
 }

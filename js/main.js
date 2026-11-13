@@ -6,6 +6,7 @@ import {
 } from './data.js';
 import { SURVIVAL_MAPS, decodeMapCode } from './survival-map.js';
 import { nick, myBest, saveBest, recordText, fetchRank, submitRank } from './rank.js';
+import { TUTORIAL as TUT_GAME, STEPS, stepGuard } from './coach.js';
 import { Game, towerName } from './game.js';
 import { Renderer } from './render.js';
 import { dragonSprite, comboSprite, towerSprite, monsterSprite, stoneSprite, flagSprite, gateSprite, portalSprite, iconCanvas } from './sprites.js';
@@ -89,15 +90,23 @@ function showTitle() {
     el('p', { text: '라운드마다 드래곤 5마리를 놓고 1마리만 남기세요. 나머지는 돌이 되어 미로가 됩니다. 몬스터를 오래 돌아가게 만들어 섬멸하세요.' }),
     meta.best ? el('p', { text: `일반 모드 최고 기록 ${meta.best} · 보유 마일리지 ${meta.mileage}` }) : el('p', { text: `보유 마일리지 ${meta.mileage}` }),
   );
-  const go = (fn) => { if (!seen.tutorial) showTutorial(0, fn); else fn(); };
+  // 처음 하는 사람에게는 튜토리얼 모드를 먼저 권한다
+  const go = (fn) => {
+    if (seen.tutmode) { fn(); return; }
+    openModal('처음이신가요?', [el('p', { text: '처음 하는 분들은 규칙이 낯설어서 어렵게 느끼곤 해요. 3분 정도 걸리는 튜토리얼 모드로 직접 해 보면서 익혀 보세요.' })], [
+      el('button', { class: 'btn', type: 'button', text: '바로 시작', onclick: () => { markSeen('tutmode'); fn(); } }),
+      el('button', { class: 'btn primary', type: 'button', text: '튜토리얼 모드 해 보기', onclick: startTutorialMode }),
+    ], { closable: false });
+  };
   body.append(el('div', { class: 'modes' },
+    el('button', { class: 'modecard', type: 'button', id: 'btnTutMode', onclick: startTutorialMode }, el('b', { text: '튜토리얼 모드' }), el('span', { text: '처음이라면 여기부터 · 4라운드 직접 해 보며 규칙 익히기 (약 3분)' })),
     el('button', { class: 'modecard primary', type: 'button', id: 'btnNormal', onclick: () => go(() => startGame({ mode: 'normal' })) }, el('b', { text: '일반 모드 시작' }), el('span', { text: '스테이지마다 새 지형 · 30라운드씩' })),
     el('button', { class: 'modecard', type: 'button', id: 'btnSurvival', onclick: () => go(showSurvival) }, el('b', { text: '서바이벌' }), el('span', { text: '고정 맵 80라운드 · 끝까지 가면 데미지 측정 · 친구와 순위 비교' }))));
   openModal('Dragon Merge & Maze', body, [
     el('button', { class: 'btn', type: 'button', text: '영구 강화', onclick: () => showMeta(showTitle) }),
-    el('button', { class: 'btn', type: 'button', text: '튜토리얼', onclick: () => showTutorial(0, showTitle) }),
+    el('button', { class: 'btn', type: 'button', text: '규칙 설명', onclick: () => showTutorial(0, showTitle) }),
   ], { closable: false });
-  setTimeout(() => { const b = $('btnNormal'); if (b) b.focus(); }, 40);
+  setTimeout(() => { const b = $(seen.tutmode ? 'btnNormal' : 'btnTutMode'); if (b) b.focus(); }, 40);
 }
 
 // ---------- 서바이벌: 맵 고르기, 순위표 (v0.5 7번) ----------
@@ -254,8 +263,11 @@ function startGame(opts = lastStart) {
   lastStart = opts;
   closeModal();
   const sm = opts.mode === 'survival' ? SMAPS.find((m) => m.key === opts.map) : null;
-  game = sm ? new Game({ meta: { levels: { ...meta.levels } }, mode: 'survival', survivalMap: { key: sm.key, name: sm.name, def: sm.def } })
-    : new Game({ meta: { levels: { ...meta.levels } } });
+  game = opts.mode === 'tutorial' ? new Game({ meta: { levels: {} }, mode: 'tutorial', tutorial: TUT_GAME })
+    : sm ? new Game({ meta: { levels: { ...meta.levels } }, mode: 'survival', survivalMap: { key: sm.key, name: sm.name, def: sm.def } })
+      : new Game({ meta: { levels: { ...meta.levels } } });
+  coach = null;
+  if (game.mode === 'tutorial') { coach = { i: -1, ctx: {} }; coachGo(0); game.on('tutorialdone', onTutorialDone); }
   view.selPiece = game.draw[0] ? game.draw[0].pid : null;
   view.selTower = null; view.selStone = null;
   running = true; paused = false; speed = 1;
@@ -266,10 +278,62 @@ function startGame(opts = lastStart) {
   game.on('leak', () => { flashLives(); });
   game.on('stageclear', onStageClear);
   game.on('over', onOver);
+  renderCoach();
   game.on('tester', () => { showBanner('combine', '데미지 테스터 등장! 도착할 때까지 넣은 데미지를 재요'); sfx.play('onehit'); });
   dirty = true;
   sfx.unlock();
   maybeHint();
+}
+
+// ---------- 튜토리얼 모드 안내 ----------
+let coach = null;
+function startTutorialMode() { markSeen('tutmode'); startGame({ mode: 'tutorial' }); }
+function coachGo(i) {
+  coach.i = i;
+  const st = STEPS[i];
+  if (!st) { game.guard = null; return; }
+  game.guard = stepGuard(st);
+  if (st.enter) st.enter(game, coach.ctx);
+  view.selTower = null; view.selStone = null;
+  const box = $('coach');
+  box.classList.remove('flash'); void box.offsetWidth; box.classList.add('flash');
+  dirty = true;
+}
+function coachTick() {
+  if (!coach || !game || game.mode !== 'tutorial') return;
+  let st = STEPS[coach.i];
+  while (st && st.done && st.done(game, coach.ctx)) { coachGo(coach.i + 1); st = STEPS[coach.i]; }
+}
+function renderCoach() {
+  const box = $('coach');
+  const st = coach && game && game.mode === 'tutorial' ? STEPS[coach.i] : null;
+  box.hidden = !st;
+  if (!st) return;
+  $('coachStep').textContent = `튜토리얼 ${coach.i + 1} / ${STEPS.length}`;
+  $('coachTitle').textContent = st.title;
+  setKids($('coachText'), ...st.text.map((t) => el('p', { text: t })));
+  $('coachNext').hidden = !st.btn;
+  $('coachNext').textContent = st.btn || '';
+}
+$('coachNext').addEventListener('click', () => { if (coach) coachGo(coach.i + 1); });
+$('coachQuit').addEventListener('click', () => { coach = null; running = false; $('coach').hidden = true; showTitle(); });
+function onTutorialDone() {
+  running = false;
+  coach = null; $('coach').hidden = true;
+  markSeen('tutmode'); markSeen('tutorial');
+  openModal('튜토리얼 끝!', [
+    el('p', { text: '이제 기본 규칙을 다 해 봤어요. 정리하면 이래요.' }),
+    el('ul', { class: 'tutsum' },
+      el('li', { text: '라운드마다 5마리를 놓고 1마리만 남겨요. 나머지는 돌(미로 벽)이 돼요.' }),
+      el('li', { text: '같은 드래곤 2마리가 한 라운드에 나오면 합성해서 남기고, 필드에 3마리가 모이면 정비 시간에 합성해요.' }),
+      el('li', { text: '조합 재료가 5마리 안에 다 나오면 럭키 원힛, 필드에 모아 두면 콤바인이에요.' }),
+      el('li', { text: '골드로 승급하면 높은 등급이 잘 나와요. 길을 막지 말고 길게 꼬세요.' }),
+      el('li', { text: '일반 모드는 30라운드마다 새 지형, 서바이벌은 고정 맵 80라운드예요. 게임이 끝나면 마일리지로 영구 강화를 해요.' })),
+  ], [
+    el('button', { class: 'btn', type: 'button', text: '다시 해 보기', onclick: startTutorialMode }),
+    el('button', { class: 'btn', type: 'button', text: '타이틀로', onclick: showTitle }),
+    el('button', { class: 'btn primary', type: 'button', text: '일반 모드 시작', onclick: () => startGame({ mode: 'normal' }) }),
+  ], { closable: false });
 }
 
 // ---------- 원힛·콤바인 알림: 맵 표시, 배너, 효과음, 도감 버튼 (다음 제작 목록 2번) ----------
@@ -416,6 +480,7 @@ function onStageClear() {
 
 function onOver(mileage) {
   running = false;
+  if (game.mode === 'tutorial') { coach = null; $('coach').hidden = true; if (quitKind === 'restart') { quitKind = null; startTutorialMode(); } else { quitKind = null; showTitle(); } return; }
   if (game.mode === 'survival') { onSurvivalOver(mileage); return; }
   meta.mileage += mileage;
   const label = game.roundLabel();
@@ -532,7 +597,7 @@ function wantedHint() {
   return cands.find((k) => !seen[`hint_${k}`]) || null;
 }
 function maybeHint() {
-  if (!game || !running) { $('hint').hidden = true; return; }
+  if (!game || !running || game.mode === 'tutorial') { $('hint').hidden = true; return; }
   const k = wantedHint();
   if (!k) { hintKey = null; $('hint').hidden = true; return; }
   if (k !== hintKey) { hintKey = k; $('hintText').textContent = HINTS[k]; }
@@ -794,7 +859,7 @@ function renderHud() {
   $('phaseLine').textContent = ph === 'place' ? `드래곤 배치: ${game.draw.length}마리를 지도에 놓으세요`
     : ph === 'choose' ? '하나만 남기기: 남길 드래곤을 고르세요'
       : ph === 'prep' ? '정비 시간: 합성·콤바인 후 웨이브를 시작하세요'
-        : ph === 'wave' ? '웨이브 진행 중' : ph === 'tester' ? '데미지 테스터: 도착할 때까지 데미지를 넣으세요' : ph === 'over' ? '게임 오버' : '스테이지 클리어';
+        : ph === 'wave' ? '웨이브 진행 중' : ph === 'tutdone' ? '튜토리얼 끝' : ph === 'tester' ? '데미지 테스터: 도착할 때까지 데미지를 넣으세요' : ph === 'over' ? '게임 오버' : '스테이지 클리어';
   const st = $('btnStart');
   st.disabled = ph !== 'prep';
   st.textContent = ph === 'prep' ? `웨이브 시작 (${game.roundLabel()})` : ph === 'place' ? `드래곤 배치 중 (${game.draw.length}마리 남음)` : ph === 'choose' ? '남길 드래곤을 고르세요' : ph === 'wave' ? '웨이브 진행 중…' : ph === 'tester' ? '데미지 측정 중…' : '대기';
@@ -802,7 +867,10 @@ function renderHud() {
   $('btnPause').textContent = paused ? '계속하기' : '일시정지';
   const cnt = [0, 0, 0, 0, 0];
   for (const t of game.map.grid) cnt[t]++;
-  if (game.mode === 'survival') {
+  if (game.mode === 'tutorial') {
+    $('mapName').textContent = '튜토리얼 · 연습 맵';
+    $('mapTags').textContent = `${COLS} × ${ROWS}칸 · 깃발 ${game.map.flags.length} · ${game.maxRound}라운드 · 지지 않아요`;
+  } else if (game.mode === 'survival') {
     $('mapName').textContent = `서바이벌 · ${game.survivalMap.name}`;
     $('mapTags').textContent = `${COLS} × ${ROWS}칸 · 깃발 ${game.map.flags.length} · ${SURVIVAL_ROUNDS}라운드`;
   } else {
@@ -824,10 +892,15 @@ function fitBoard() {
 
 function renderAll() {
   if (!game) return;
+  coachTick();
+  renderCoach();
   fitBoard();
   renderHud();
   renderTray();
   renderInfo();
+  // 튜토리얼: 이번 단계에서 눌러야 할 드래곤을 반짝이게
+  const cst = coach && STEPS[coach.i];
+  if (cst && cst.hl && !view.highlight.length) view.highlight = cst.hl(game).map((t) => t.id);
   renderLuck();
   renderWave();
   renderBubbles();
